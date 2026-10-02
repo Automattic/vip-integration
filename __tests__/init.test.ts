@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
@@ -10,7 +11,7 @@ jest.mock( 'node:readline/promises', () => ( {
 	createInterface: jest.fn( () => ( { question: mockQuestion, close: mockClose } ) ),
 } ) );
 
-import { initCommand, parseLatestReleaseTag } from '../src/commands/init';
+import { initCommand, laySkeleton, parseLatestReleaseTag } from '../src/commands/init';
 
 const SOURCE = 'https://github.com/Automattic/vip-integrations-starter-kit.git';
 
@@ -65,6 +66,104 @@ describe( 'parseLatestReleaseTag', () => {
 		expect( () => parseLatestReleaseTag( 'hash\trefs/heads/trunk', SOURCE ) ).toThrow(
 			/no release tags/
 		);
+	} );
+} );
+
+describe( 'laySkeleton', () => {
+	let root: string;
+
+	beforeAll( () => {
+		root = mkdtempSync( join( tmpdir(), 'vip-integration-lay-' ) );
+	} );
+
+	afterAll( () => {
+		rmSync( root, { recursive: true, force: true } );
+	} );
+
+	/**
+	 * A throwaway source repository with one commit tagged `1.0.0`. `annotated`
+	 * picks the tag object kind, which is the whole point of these cases: the
+	 * Starter Kit's own tags have been both kinds, and `clone --branch` warns on
+	 * the annotated one.
+	 */
+	function sourceRepo( name: string, annotated: boolean ): { path: string; commit: string } {
+		const path = join( root, name );
+		// A CI runner has no git identity, and both `commit` and `tag -a` need one,
+		// so every invocation carries it rather than just the commit.
+		const git = ( ...args: string[] ): string =>
+			execFileSync(
+				'git',
+				[
+					'-C',
+					path,
+					'-c',
+					'user.email=t@example.com',
+					'-c',
+					'user.name=T',
+					'-c',
+					'tag.gpgsign=false',
+					...args,
+				],
+				{ encoding: 'utf8' }
+			).trim();
+
+		execFileSync( 'git', [ 'init', '--quiet', '-b', 'main', path ] );
+		writeFileSync( join( path, 'marker.txt' ), 'starter kit\n' );
+		git( 'add', 'marker.txt' );
+		git( 'commit', '--quiet', '-m', 'kit' );
+		if ( annotated ) {
+			git( 'tag', '-a', '1.0.0', '-m', 'release' );
+		} else {
+			git( 'tag', '1.0.0' );
+		}
+
+		return { path, commit: git( 'rev-parse', 'HEAD' ) };
+	}
+
+	it.each( [
+		[ 'an annotated tag', true ],
+		[ 'a lightweight tag', false ],
+	] )( 'lays the kit down from %s', ( _label, annotated ) => {
+		const source = sourceRepo( `src-${ annotated ? 'annotated' : 'lightweight' }`, annotated );
+		const target = join( root, `out-${ annotated ? 'annotated' : 'lightweight' }` );
+
+		laySkeleton( target, source.path, '1.0.0' );
+
+		expect( readFileSync( join( target, 'marker.txt' ), 'utf8' ) ).toBe( 'starter kit\n' );
+		// History is dropped, so the partner starts from a clean tree.
+		expect( existsSync( join( target, '.git' ) ) ).toBe( false );
+	} );
+
+	it( 'hides the harmless annotated-tag warning but keeps other git output', () => {
+		const source = sourceRepo( 'src-warning', true );
+		const target = join( root, 'out-warning' );
+		const stderr = jest.spyOn( process.stderr, 'write' ).mockImplementation( () => true );
+
+		laySkeleton( target, source.path, '1.0.0' );
+
+		const written = stderr.mock.calls.flat().join( '' );
+		expect( written ).not.toMatch( /is not a commit/ );
+		stderr.mockRestore();
+	} );
+
+	it( 'reports git failures rather than swallowing them', () => {
+		const target = join( root, 'out-missing-ref' );
+		const source = sourceRepo( 'src-missing-ref', false );
+		const stderr = jest.spyOn( process.stderr, 'write' ).mockImplementation( () => true );
+
+		expect( () => laySkeleton( target, source.path, '9.9.9' ) ).toThrow( /failed/ );
+		// git's own explanation survives the filter.
+		expect( stderr.mock.calls.flat().join( '' ) ).toMatch( /9\.9\.9|not found|Remote branch/ );
+		stderr.mockRestore();
+	} );
+
+	it( 'falls back to the default branch when there is no ref', () => {
+		const source = sourceRepo( 'src-noref', false );
+		const target = join( root, 'out-noref' );
+
+		laySkeleton( target, source.path, undefined );
+
+		expect( readFileSync( join( target, 'marker.txt' ), 'utf8' ) ).toBe( 'starter kit\n' );
 	} );
 } );
 
