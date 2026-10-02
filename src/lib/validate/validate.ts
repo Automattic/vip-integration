@@ -17,6 +17,11 @@ import { extname, join } from 'node:path';
 
 import { MANIFEST_FILENAMES, inspectManifest } from './manifest';
 import { MANIFEST_PLACEHOLDER } from './manifest.schema';
+import {
+	REQUIRED_PHP_VERSIONS,
+	REQUIRED_WP_VERSIONS,
+	WP_BASELINE_LAST_VERIFIED,
+} from './wp-baseline';
 
 import type { ManifestInspection } from './manifest';
 
@@ -881,10 +886,15 @@ function collectMatrixVersions( workflowsText: string, keyPattern: string ): Set
 }
 
 function checkCompatibilityMatrix( ctx: Context ): CheckResult {
+	const [ currentWpVersion, previousWpVersion ] = REQUIRED_WP_VERSIONS;
+	const wpRangeLabel = `${ previousWpVersion }/${ currentWpVersion }`;
+	const phpRangeLabel = `${ REQUIRED_PHP_VERSIONS[ 0 ] }-${
+		REQUIRED_PHP_VERSIONS[ REQUIRED_PHP_VERSIONS.length - 1 ]
+	}`;
 	const base = {
 		id: 'compatibility-matrix',
 		rule: 7,
-		title: 'Compatibility evidence covers WP 6.9/7.0 and PHP 8.2-8.5',
+		title: `Compatibility evidence covers WP ${ wpRangeLabel } and PHP ${ phpRangeLabel }`,
 	};
 	// Evidence must be a real CI matrix (.github/workflows) or an explicit,
 	// structured exception flag — not a version number or phrase that happens to
@@ -905,8 +915,7 @@ function checkCompatibilityMatrix( ctx: Context ): CheckResult {
 		return {
 			...base,
 			status: 'fail',
-			message:
-				'No CI workflows found to evidence the compatibility matrix (WP 6.9 + 7.0, PHP 8.2-8.5).',
+			message: `No CI workflows found to evidence the compatibility matrix (WP ${ wpRangeLabel }, PHP ${ phpRangeLabel }).`,
 			details: [
 				'Add a CI matrix under .github/workflows, or document an approved compatibility exception note.',
 			],
@@ -915,24 +924,25 @@ function checkCompatibilityMatrix( ctx: Context ): CheckResult {
 
 	const missing: string[] = [];
 	// Scope the WordPress scan to a `wp` / `wordpress` matrix key, exactly as PHP
-	// is scoped below — a bare `6.9`/`7.0` elsewhere (a `node` matrix, an action
-	// tag, `runs-on: ubuntu-latest`) is not WordPress evidence. WP 7.0 in CI is
-	// often written as `wp: latest`, so that counts too.
+	// is scoped below — a bare version number elsewhere (a `node` matrix, an
+	// action tag, `runs-on: ubuntu-latest`) is not WordPress evidence. The
+	// current release in CI is often written as `wp: latest`, so that counts too
+	// — it tracks whatever WordPress ships next with no edits needed here.
 	const wpVersions = collectMatrixVersions(
 		ctx.workflowsText,
 		'w(?:p|ordpress)(?:[-_]versions?)?'
 	);
-	if ( ! wpVersions.has( '6.9' ) ) {
-		missing.push( 'WordPress 6.9' );
+	if ( ! wpVersions.has( previousWpVersion ) ) {
+		missing.push( `WordPress ${ previousWpVersion }` );
 	}
-	if ( ! wpVersions.has( '7.0' ) && ! wpVersions.has( 'latest' ) ) {
-		missing.push( 'WordPress 7.0' );
+	if ( ! wpVersions.has( currentWpVersion ) && ! wpVersions.has( 'latest' ) ) {
+		missing.push( `WordPress ${ currentWpVersion } (or 'latest')` );
 	}
 	// Accept `php-versions` (plural) alongside `php` / `php-version` — the plural
 	// is the key `shivammathur/setup-php` examples use, so a conformant matrix
 	// must not be failed just for pluralizing it.
 	const phpVersions = collectMatrixVersions( ctx.workflowsText, 'php(?:[-_]versions?)?' );
-	for ( const php of [ '8.2', '8.3', '8.4', '8.5' ] ) {
+	for ( const php of REQUIRED_PHP_VERSIONS ) {
 		if ( ! phpVersions.has( php ) ) {
 			missing.push( `PHP ${ php }` );
 		}
@@ -942,7 +952,7 @@ function checkCompatibilityMatrix( ctx: Context ): CheckResult {
 		return {
 			...base,
 			status: 'pass',
-			message: 'CI matrix covers WP 6.9 + 7.0 and PHP 8.2-8.5.',
+			message: `CI matrix covers WP ${ wpRangeLabel } and PHP ${ phpRangeLabel }.`,
 		};
 	}
 	return {
@@ -951,6 +961,7 @@ function checkCompatibilityMatrix( ctx: Context ): CheckResult {
 		message: `CI compatibility matrix is missing: ${ missing.join( ', ' ) }.`,
 		details: [
 			'Cover the matrix in CI (.github/workflows) or add an approved compatibility exception note.',
+			`Required baseline: WordPress ${ wpRangeLabel } (or 'latest' for ${ currentWpVersion }), PHP ${ phpRangeLabel }. Last verified ${ WP_BASELINE_LAST_VERIFIED } — see src/lib/validate/wp-baseline.ts.`,
 		],
 	};
 }

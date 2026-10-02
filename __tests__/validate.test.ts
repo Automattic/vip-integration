@@ -3,8 +3,12 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { looksLikeIntegration, validateIntegration } from '../src/lib/validate/validate';
+import { REQUIRED_PHP_VERSIONS, REQUIRED_WP_VERSIONS } from '../src/lib/validate/wp-baseline';
 
 import type { CheckStatus } from '../src/lib/validate/validate';
+
+const [ CURRENT_WP, PREVIOUS_WP ] = REQUIRED_WP_VERSIONS;
+const [ PHP_LOW, PHP_MID_A, PHP_MID_B, PHP_HIGH ] = REQUIRED_PHP_VERSIONS;
 
 /** A complete handoff manifest matching the conformant fixture's names. */
 function conformantManifest(): string {
@@ -133,10 +137,10 @@ function scaffoldConformant( root: string ): void {
 			'    strategy:',
 			'      matrix:',
 			'        config:',
-			"          - { wp: 6.9.x, php: '8.2' }",
-			"          - { wp: latest, php: '8.3' }",
-			"          - { wp: latest, php: '8.4' }",
-			"          - { wp: 7.0, php: '8.5' }",
+			`          - { wp: ${ PREVIOUS_WP }.x, php: '${ PHP_LOW }' }`,
+			`          - { wp: latest, php: '${ PHP_MID_A }' }`,
+			`          - { wp: latest, php: '${ PHP_MID_B }' }`,
+			`          - { wp: ${ CURRENT_WP }, php: '${ PHP_HIGH }' }`,
 		].join( '\n' )
 	);
 }
@@ -764,18 +768,21 @@ describe( 'validateIntegration', () => {
 		rmSync( join( root, '.github' ), { recursive: true, force: true } );
 		writeFileSync(
 			join( root, 'docs', 'compat.md' ),
-			'Tested against WordPress 6.9 and 7.0, PHP 8.2, 8.3, 8.4, 8.5. Install the latest release.'
+			`Tested against WordPress ${ PREVIOUS_WP } and ${ CURRENT_WP }, PHP ${ REQUIRED_PHP_VERSIONS.join(
+				', '
+			) }. Install the latest release.`
 		);
 
 		expect( statusById( root )[ 'compatibility-matrix' ] ).toBe( 'fail' );
 	} );
 
-	it( 'does not count `runs-on: ubuntu-latest` as WordPress 7.0 evidence', () => {
+	it( 'does not count `runs-on: ubuntu-latest` as WordPress evidence for the current release', () => {
 		const root = join( dir, 'ubuntu-latest' );
 		mkdirSync( root, { recursive: true } );
 		scaffoldConformant( root );
-		// A matrix that covers 6.9 and the PHP range but expresses no WP 7.0 or
-		// `wp: latest` — only an unrelated `runs-on: ubuntu-latest` runner label.
+		// A matrix that covers the previous release and the PHP range but
+		// expresses no current release or `wp: latest` — only an unrelated
+		// `runs-on: ubuntu-latest` runner label.
 		writeFileSync(
 			join( root, '.github', 'workflows', 'unit-tests.yml' ),
 			[
@@ -785,10 +792,10 @@ describe( 'validateIntegration', () => {
 				'    strategy:',
 				'      matrix:',
 				'        config:',
-				"          - { wp: 6.9.x, php: '8.2' }",
-				"          - { wp: 6.9.x, php: '8.3' }",
-				"          - { wp: 6.9.x, php: '8.4' }",
-				"          - { wp: 6.9.x, php: '8.5' }",
+				`          - { wp: ${ PREVIOUS_WP }.x, php: '${ PHP_LOW }' }`,
+				`          - { wp: ${ PREVIOUS_WP }.x, php: '${ PHP_MID_A }' }`,
+				`          - { wp: ${ PREVIOUS_WP }.x, php: '${ PHP_MID_B }' }`,
+				`          - { wp: ${ PREVIOUS_WP }.x, php: '${ PHP_HIGH }' }`,
 			].join( '\n' )
 		);
 
@@ -796,10 +803,10 @@ describe( 'validateIntegration', () => {
 			result => result.id === 'compatibility-matrix'
 		);
 		expect( rule7?.status ).toBe( 'fail' );
-		expect( rule7?.message ).toMatch( /WordPress 7\.0/ );
+		expect( rule7?.message ).toContain( `WordPress ${ CURRENT_WP }` );
 	} );
 
-	it( 'accepts `wp: latest` in the matrix as WordPress 7.0 evidence', () => {
+	it( 'accepts `wp: latest` in the matrix as current-release evidence', () => {
 		const root = join( dir, 'wp-latest' );
 		mkdirSync( root, { recursive: true } );
 		scaffoldConformant( root );
@@ -812,10 +819,10 @@ describe( 'validateIntegration', () => {
 				'    strategy:',
 				'      matrix:',
 				'        config:',
-				"          - { wp: 6.9.x, php: '8.2' }",
-				"          - { wp: latest, php: '8.3' }",
-				"          - { wp: latest, php: '8.4' }",
-				"          - { wp: latest, php: '8.5' }",
+				`          - { wp: ${ PREVIOUS_WP }.x, php: '${ PHP_LOW }' }`,
+				`          - { wp: latest, php: '${ PHP_MID_A }' }`,
+				`          - { wp: latest, php: '${ PHP_MID_B }' }`,
+				`          - { wp: latest, php: '${ PHP_HIGH }' }`,
 			].join( '\n' )
 		);
 
@@ -826,7 +833,7 @@ describe( 'validateIntegration', () => {
 		const root = join( dir, 'php-scoping' );
 		mkdirSync( root, { recursive: true } );
 		scaffoldConformant( root );
-		// mysql:8.4 and a node 18.5 matrix must not be read as PHP 8.4 / 8.5.
+		// mysql:8.4 and a node 18.5 matrix must not be read as PHP coverage.
 		writeFileSync(
 			join( root, '.github', 'workflows', 'unit-tests.yml' ),
 			[
@@ -839,8 +846,8 @@ describe( 'validateIntegration', () => {
 				'      matrix:',
 				'        node-version: [ 18.2, 18.5 ]',
 				'        config:',
-				"          - { wp: 6.9.x, php: '8.2' }",
-				"          - { wp: 7.0, php: '8.3' }",
+				`          - { wp: ${ PREVIOUS_WP }.x, php: '${ PHP_LOW }' }`,
+				`          - { wp: ${ CURRENT_WP }, php: '${ PHP_MID_A }' }`,
 			].join( '\n' )
 		);
 
@@ -848,8 +855,8 @@ describe( 'validateIntegration', () => {
 			result => result.id === 'compatibility-matrix'
 		);
 		expect( rule7?.status ).toBe( 'fail' );
-		expect( rule7?.message ).toMatch( /PHP 8\.4/ );
-		expect( rule7?.message ).toMatch( /PHP 8\.5/ );
+		expect( rule7?.message ).toContain( `PHP ${ PHP_MID_B }` );
+		expect( rule7?.message ).toContain( `PHP ${ PHP_HIGH }` );
 	} );
 
 	it( 'accepts a PHP matrix written as a YAML flow array for rule 7', () => {
@@ -863,8 +870,8 @@ describe( 'validateIntegration', () => {
 				'  test:',
 				'    strategy:',
 				'      matrix:',
-				'        wp: [6.9, 7.0]',
-				'        php: [8.2, 8.3, 8.4, 8.5]',
+				`        wp: [${ PREVIOUS_WP }, ${ CURRENT_WP }]`,
+				`        php: [${ REQUIRED_PHP_VERSIONS.join( ', ' ) }]`,
 			].join( '\n' )
 		);
 
@@ -882,24 +889,21 @@ describe( 'validateIntegration', () => {
 				'  test:',
 				'    strategy:',
 				'      matrix:',
-				'        wp: [6.9, 7.0]',
+				`        wp: [${ PREVIOUS_WP }, ${ CURRENT_WP }]`,
 				'        php-version:',
-				"          - '8.2'",
-				"          - '8.3'",
-				"          - '8.4'",
-				"          - '8.5'",
+				...REQUIRED_PHP_VERSIONS.map( php => `          - '${ php }'` ),
 			].join( '\n' )
 		);
 
 		expect( statusById( root )[ 'compatibility-matrix' ] ).toBe( 'pass' );
 	} );
 
-	it( 'fails rule 7 when 6.9/7.0 sit against a non-WordPress key (no WP evidence)', () => {
+	it( 'fails rule 7 when the WP versions sit against a non-WordPress key (no WP evidence)', () => {
 		const root = join( dir, 'php-wp-unscoped' );
 		mkdirSync( root, { recursive: true } );
 		scaffoldConformant( root );
-		// `node: [6.9, 7.0]` is not WordPress evidence — Rule 7 must not read it as
-		// WP coverage just because the tokens appear somewhere in the workflow.
+		// `node: [...]` is not WordPress evidence — Rule 7 must not read it as WP
+		// coverage just because the version tokens appear somewhere in the workflow.
 		writeFileSync(
 			join( root, '.github', 'workflows', 'unit-tests.yml' ),
 			[
@@ -907,8 +911,8 @@ describe( 'validateIntegration', () => {
 				'  test:',
 				'    strategy:',
 				'      matrix:',
-				'        node: [6.9, 7.0]',
-				'        php: [8.2, 8.3, 8.4, 8.5]',
+				`        node: [${ PREVIOUS_WP }, ${ CURRENT_WP }]`,
+				`        php: [${ REQUIRED_PHP_VERSIONS.join( ', ' ) }]`,
 			].join( '\n' )
 		);
 
@@ -916,8 +920,8 @@ describe( 'validateIntegration', () => {
 			result => result.id === 'compatibility-matrix'
 		);
 		expect( rule7?.status ).toBe( 'fail' );
-		expect( rule7?.message ).toMatch( /WordPress 6\.9/ );
-		expect( rule7?.message ).toMatch( /WordPress 7\.0/ );
+		expect( rule7?.message ).toContain( `WordPress ${ PREVIOUS_WP }` );
+		expect( rule7?.message ).toContain( `WordPress ${ CURRENT_WP }` );
 	} );
 
 	it( 'accepts the `php-versions` (plural) matrix key for rule 7', () => {
@@ -931,8 +935,10 @@ describe( 'validateIntegration', () => {
 				'  test:',
 				'    strategy:',
 				'      matrix:',
-				'        wp: [6.9, 7.0]',
-				"        php-versions: ['8.2', '8.3', '8.4', '8.5']",
+				`        wp: [${ PREVIOUS_WP }, ${ CURRENT_WP }]`,
+				`        php-versions: [${ REQUIRED_PHP_VERSIONS.map( php => `'${ php }'` ).join(
+					', '
+				) }]`,
 			].join( '\n' )
 		);
 
@@ -943,7 +949,7 @@ describe( 'validateIntegration', () => {
 		const root = join( dir, 'php-comment' );
 		mkdirSync( root, { recursive: true } );
 		scaffoldConformant( root );
-		// 8.5 only appears in a comment — it must not count as coverage.
+		// The highest PHP version only appears in a comment — must not count as coverage.
 		writeFileSync(
 			join( root, '.github', 'workflows', 'unit-tests.yml' ),
 			[
@@ -951,8 +957,8 @@ describe( 'validateIntegration', () => {
 				'  test:',
 				'    strategy:',
 				'      matrix:',
-				'        wp: [6.9, 7.0]',
-				'        php: [8.2, 8.3, 8.4] # 8.5 dropped for now',
+				`        wp: [${ PREVIOUS_WP }, ${ CURRENT_WP }]`,
+				`        php: [${ PHP_LOW }, ${ PHP_MID_A }, ${ PHP_MID_B }] # ${ PHP_HIGH } dropped for now`,
 			].join( '\n' )
 		);
 
@@ -960,7 +966,7 @@ describe( 'validateIntegration', () => {
 			result => result.id === 'compatibility-matrix'
 		);
 		expect( rule7?.status ).toBe( 'fail' );
-		expect( rule7?.message ).toMatch( /PHP 8\.5/ );
+		expect( rule7?.message ).toContain( `PHP ${ PHP_HIGH }` );
 	} );
 
 	it( 'warns (not passes) rule 7 when a structured compatibility exception is claimed', () => {
