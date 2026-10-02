@@ -328,6 +328,20 @@ function codeBlocksMentioning( markdown: string, needle: string ): string[] {
  * `vendor/bin/` path — not merely a substring. So `rm -rf cypress-artifacts`
  * does not count as running Cypress.
  */
+/**
+ * Test runners accepted as end-to-end evidence for rules 2 and 8.
+ *
+ * Browser drivers plus Behat, which drives a real WordPress install through
+ * WP-CLI. An integration whose surface is WP-CLI commands or request handling
+ * rather than admin screens is tested end to end by Behat, and gains nothing
+ * from a browser driver; whether the coverage is adequate for the surfaces the
+ * integration actually exposes is a human-review judgement, not something this
+ * static check can make.
+ *
+ * Shared so the two rules cannot drift apart.
+ */
+const E2E_RUNNERS = [ 'playwright', 'cypress', 'codeception', 'puppeteer', 'behat' ];
+
 function invokesRunner( commands: string[], runners: string[] ): boolean {
 	const alternation = runners.join( '|' );
 	// runners are fixed alphabetic keywords, so interpolation is safe.
@@ -450,13 +464,13 @@ function checkComposerTest( ctx: Context ): CheckResult {
 	// Match the runner as the command actually invoked, not a substring — a
 	// segment like `rm -rf cypress-artifacts` must not count as running Cypress.
 	const hasUnit = invokesRunner( commands, [ 'phpunit' ] );
-	const hasE2e = invokesRunner( commands, [ 'playwright', 'cypress', 'codeception', 'puppeteer' ] );
+	const hasE2e = invokesRunner( commands, E2E_RUNNERS );
 
 	if ( hasUnit && hasE2e ) {
 		return {
 			...base,
 			status: 'pass',
-			message: 'composer test declares a PHPUnit run and an e2e runner (Playwright/Cypress).',
+			message: 'composer test declares a PHPUnit run and an e2e runner.',
 			details: [
 				`Resolved commands: ${ combined }`,
 				'Static check: it verifies the test commands are wired, not that the tests pass.',
@@ -469,7 +483,7 @@ function checkComposerTest( ctx: Context ): CheckResult {
 		missing.push( 'PHPUnit (no `phpunit` invocation)' );
 	}
 	if ( ! hasE2e ) {
-		missing.push( 'an e2e runner (no Playwright/Cypress invocation)' );
+		missing.push( `an e2e runner (no ${ E2E_RUNNERS.join( '/' ) } invocation)` );
 	}
 	return {
 		...base,
@@ -947,12 +961,15 @@ function checkBuildTestCommandsDocumented( ctx: Context ): CheckResult {
 		rule: 8,
 		title: 'Build and test commands are documented',
 	};
-	// Keep the e2e runner vocabulary aligned with Rule 2 so docs that use a
-	// different runner (Cypress, Codeception, Puppeteer) aren't dinged here.
-	const hasTest =
-		/composer (run )?test|phpunit|\b(playwright|cypress|codeception|puppeteer)\b/i.test(
-			ctx.docsText
-		);
+	// Shares the e2e runner vocabulary with Rule 2 so docs that use a different
+	// runner aren't dinged here.
+	// E2E_RUNNERS are fixed alphabetic keywords, so interpolation is safe.
+	// eslint-disable-next-line security/detect-non-literal-regexp
+	const testCommandPattern = new RegExp(
+		String.raw`composer (run )?test|phpunit|\b(${ E2E_RUNNERS.join( '|' ) })\b`,
+		'i'
+	);
+	const hasTest = testCommandPattern.test( ctx.docsText );
 	const hasBuild = /npm run build|npm ci|composer install|npm install/i.test( ctx.docsText );
 
 	if ( hasTest && hasBuild ) {

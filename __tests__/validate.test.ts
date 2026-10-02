@@ -296,6 +296,80 @@ describe( 'validateIntegration', () => {
 		expect( statusById( root )[ 'composer-test' ] ).toBe( 'pass' );
 	} );
 
+	it( 'accepts Behat as a documented test command for rule 8', () => {
+		// Rule 8 shares Rule 2's runner vocabulary, so docs that name Behat
+		// instead of a browser driver must still satisfy the test-command half.
+		const root = join( dir, 'docs-behat' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'docs', 'integration.md' ),
+			[
+				'# Integration',
+				'',
+				'## Build and test',
+				'Run `composer install`, then `behat --colors`.',
+			].join( '\n' )
+		);
+
+		expect( statusById( root )[ 'build-test-commands-documented' ] ).toBe( 'pass' );
+	} );
+
+	it( 'accepts Behat as the e2e runner for rule 2', () => {
+		// Behat drives a real WordPress install through WP-CLI, so it is valid
+		// end-to-end evidence for an integration whose surface is CLI commands
+		// or request handling rather than admin screens.
+		const root = join( dir, 'e2e-behat' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'composer.json' ),
+			JSON.stringify( {
+				type: 'wordpress-plugin',
+				autoload: { classmap: [ 'inc/' ] },
+				scripts: {
+					test: [ '@test:unit', '@test:behat' ],
+					'test:unit': 'phpunit',
+					'test:behat': 'behat --colors',
+				},
+			} )
+		);
+
+		expect( statusById( root )[ 'composer-test' ] ).toBe( 'pass' );
+	} );
+
+	it( 'accepts Behat invoked from vendor/bin for rule 2', () => {
+		const root = join( dir, 'e2e-behat-vendor' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'composer.json' ),
+			JSON.stringify( {
+				type: 'wordpress-plugin',
+				autoload: { classmap: [ 'inc/' ] },
+				scripts: { test: [ 'phpunit', '@php ./vendor/bin/behat --colors' ] },
+			} )
+		);
+
+		expect( statusById( root )[ 'composer-test' ] ).toBe( 'pass' );
+	} );
+
+	it( 'does not count a Behat name inside another command as an e2e run for rule 2', () => {
+		const root = join( dir, 'e2e-behat-substring' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'composer.json' ),
+			JSON.stringify( {
+				type: 'wordpress-plugin',
+				autoload: { classmap: [ 'inc/' ] },
+				scripts: { test: [ 'phpunit', 'rm -rf behat-artifacts' ] },
+			} )
+		);
+
+		expect( statusById( root )[ 'composer-test' ] ).toBe( 'fail' );
+	} );
+
 	it( 'does not count a runner name inside another command as an e2e run for rule 2', () => {
 		// `rm -rf cypress-artifacts` mentions Cypress but runs no tests; it must
 		// not satisfy the e2e requirement just by containing the runner name.
