@@ -109,6 +109,20 @@ describe( 'manifest field rules', () => {
 			`${ type } with an explicit ${ format } format`,
 			{ key: 'a', label: 'A', type, format, example },
 		] ),
+		...[
+			[ 'url', 'email' ],
+			[ 'email', 'url' ],
+		].map( ( [ type, format ] ): [ string, Field ] => [
+			`${ type } satisfying both its type and ${ format } format`,
+			{
+				key: 'a',
+				label: 'A',
+				type,
+				format,
+				default: 'https://ops@acme.example',
+				example: 'https://ops@acme.example',
+			},
+		] ),
 		[
 			'secret with a pattern',
 			{ key: 'a', label: 'A', type: 'secret', pattern: 'sk_[a-z0-9]+', example: 'sk_123' },
@@ -383,6 +397,18 @@ describe( 'manifest field rules', () => {
 			{ key: 'a', label: 'A', type: 'text', format: 'ip_or_cidr', example: 'acme.example' },
 			/example must be an IP address or CIDR range/,
 		],
+		...[
+			[ 'url', 'email', 'ops@acme.example', 'an http(s) URL' ],
+			[ 'email', 'url', 'https://acme.example', 'an email address' ],
+			[ 'url', 'email', 'https://acme.example', 'an email address' ],
+			[ 'email', 'url', 'ops@acme.example', 'an http(s) URL' ],
+		].flatMap( ( [ type, format, value, expected ] ) =>
+			[ 'default', 'example' ].map( ( key ): [ string, Field, RegExp ] => [
+				`${ key } on ${ type } with ${ format } format that is not ${ expected }`,
+				{ key: 'a', label: 'A', type, format, [ key ]: value },
+				expected === 'an email address' ? /must be an email address/ : /must be an http\(s\) URL/,
+			] )
+		),
 		[
 			'a non-http default on a url field',
 			{ key: 'a', label: 'A', type: 'url', default: 'ftp://acme.example' },

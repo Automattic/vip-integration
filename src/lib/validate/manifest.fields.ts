@@ -141,9 +141,11 @@ function stringIssue( rules: ValueRules, value: unknown ): string | null {
 		return `is longer than "max_length" (${ rules.max_length })`;
 	}
 	// A `url` or `email` field carries its format in the type.
-	const format = FORMATS[ rules.format ?? rules.type ];
-	if ( format && ! format.test( value ) ) {
-		return `must be ${ format.noun }`;
+	for ( const name of [ rules.type, rules.format ] ) {
+		const format = name && FORMATS[ name ];
+		if ( format && ! format.test( value ) ) {
+			return `must be ${ format.noun }`;
+		}
 	}
 	if ( rules.pattern !== undefined ) {
 		const compiled = compilePattern( rules.pattern );
