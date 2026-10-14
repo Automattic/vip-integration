@@ -1,11 +1,10 @@
 /**
  * JSON Schema for the VIP integration handoff manifest (`vip-manifest.yaml`).
  *
- * This is the single source of truth for what a manifest may contain and the
- * constraints on each field. `manifest.ts` compiles it with Ajv and validates a
- * parsed manifest against it, so adding or tightening a rule means editing the
- * schema here — not hand-written checks. Partners can use the generated
- * `docs/vip-manifest.schema.json` to get the same contract in their editor.
+ * This owns the manifest's shape and validation-key applicability.
+ * `manifest.ts` compiles it with Ajv before running the semantic checks in
+ * `manifest.fields.ts`. Keep schema-expressible constraints here so editor
+ * validation and the CLI share them.
  *
  * `additionalProperties: false` is set on every defined object on purpose: VIP
  * registers the integration from this file alone, so an unexpected or
@@ -16,8 +15,8 @@
  * the draft VIP Integration Handoff spec, so this schema converges toward it
  * rather than forking a third variant.
  *
- * `pnpm schema` writes it to `docs/vip-manifest.schema.json` (see
- * `manifestJsonSchema`). See `docs/testing.md` for regeneration instructions.
+ * See docs/testing.md#the-manifest-json-schema for regenerating the editor
+ * schema through `manifestJsonSchema`.
  */
 
 /** The `manifest_kind` value that identifies a handoff manifest. */
@@ -48,7 +47,7 @@ export const FIELD_TYPES = [
 const STRING_VALUE_TYPES = [ 'string', 'text', 'url', 'email', 'secret' ];
 
 /**
- * Formats a `string` field or list item can declare. Each one maps to a fixed
+ * Formats a string-valued field or list item can declare. Each one maps to a fixed
  * check (and input hint) in the platform, so partners don't hand-write a regex
  * for common values.
  */
@@ -60,8 +59,7 @@ export const FIELD_UNITS = [ 'seconds', 'minutes', 'hours', 'days' ] as const;
 /**
  * The field types each validation key applies to. The schema rejects a key on
  * any other type (`min` on a string field), so a rule is never silently
- * ignored. `example` is left off boolean and enum: a toggle or a select has no
- * placeholder to show it in.
+ * ignored.
  */
 const RULE_TYPES: Record< string, readonly string[] > = {
 	integer: [ 'number' ],
@@ -71,10 +69,10 @@ const RULE_TYPES: Record< string, readonly string[] > = {
 	min_length: STRING_VALUE_TYPES,
 	max_length: STRING_VALUE_TYPES,
 	pattern: STRING_VALUE_TYPES,
-	format: [ 'string' ],
+	format: STRING_VALUE_TYPES,
 	items: [ 'list' ],
 	max_items: [ 'list' ],
-	example: FIELD_TYPES.filter( type => type !== 'boolean' && type !== 'enum' ),
+	example: FIELD_TYPES,
 };
 
 // Rules shared by string fields and list items.
@@ -338,7 +336,7 @@ export const MANIFEST_SCHEMA = {
 						'Optional default value pre-filled in the form. Must follow the field\'s own rules; a list for "list" fields.',
 				},
 				example: {
-					type: [ 'string', 'number', 'array' ],
+					type: [ 'string', 'number', 'boolean', 'array' ],
 					items: { type: 'string' },
 					description:
 						'Optional example value, shown as the input placeholder. Must follow the field\'s own rules; a list for "list" fields.',
@@ -416,11 +414,6 @@ export const MANIFEST_SCHEMA = {
 						],
 					},
 					then: { required: [ 'example' ] },
-				},
-				{
-					$comment: "A required field can't be nullable, since it can't be cleared.",
-					if: { required: [ 'required' ], properties: { required: { const: true } } },
-					then: { properties: { nullable: { const: false } } },
 				},
 				...Object.entries( RULE_TYPES ).map( ( [ key, types ] ) => ( {
 					$comment: `"${ key }" only applies to type ${ types

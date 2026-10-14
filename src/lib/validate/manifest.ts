@@ -7,12 +7,8 @@
  * loader, the integration service registration + secret sync, and the
  * Integration Center catalog entry and config form.
  *
- * This module reads that file and validates it against `MANIFEST_SCHEMA`, the
- * JSON Schema that is the single source of truth for the manifest's shape and
- * constraints. It is a presence-and-shape check — it confirms the manifest
- * gives VIP everything it must have, in the right form, to register the
- * integration; it does not verify the values are correct (that a URL resolves,
- * a secret is real).
+ * Validation flow and scope are documented in docs/architecture.md under
+ * "The conformance checker".
  */
 
 import Ajv from 'ajv';
@@ -33,7 +29,7 @@ export interface ManifestInspection {
 	file: string | null;
 	/** Set when the file exists but is not parseable / not a mapping. */
 	parseError: string | null;
-	/** Human-readable schema violations. Empty when the manifest is conformant. */
+	/** Schema and field-rule violations; placeholders are reported separately. */
 	errors: string[];
 	/** The parsed manifest, or null when it was missing / unparseable. */
 	parsed: Record< string, unknown > | null;

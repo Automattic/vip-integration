@@ -74,11 +74,13 @@ function compilePattern( pattern: string ): RegExp | string {
 	const source = `^(?:${ pattern })$`;
 	try {
 		// eslint-disable-next-line security/detect-non-literal-regexp
+		new RegExp( pattern, 'v' );
+		// eslint-disable-next-line security/detect-non-literal-regexp
 		return new RegExp( source, 'v' );
 	} catch ( error ) {
 		try {
 			// eslint-disable-next-line security/detect-non-literal-regexp
-			new RegExp( source, 'u' );
+			new RegExp( pattern, 'u' );
 		} catch {
 			return error instanceof Error ? error.message.replace( /^.*: /, '' ) : String( error );
 		}
@@ -139,9 +141,11 @@ function stringIssue( rules: ValueRules, value: unknown ): string | null {
 		return `is longer than "max_length" (${ rules.max_length })`;
 	}
 	// A `url` or `email` field carries its format in the type.
-	const format = FORMATS[ rules.format ?? rules.type ];
-	if ( format && ! format.test( value ) ) {
-		return `must be ${ format.noun }`;
+	for ( const name of [ rules.type, rules.format ] ) {
+		const format = name && FORMATS[ name ];
+		if ( format && ! format.test( value ) ) {
+			return `must be ${ format.noun }`;
+		}
 	}
 	if ( rules.pattern !== undefined ) {
 		const compiled = compilePattern( rules.pattern );

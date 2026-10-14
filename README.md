@@ -66,7 +66,7 @@ vip-integration validate --format json # machine-readable output for CI
 
 The checker runs nine static conformance rules and prints a per-rule report. It exits `1` when the integration is **not conformant** (any rule failed), so it gates CI. Warnings do not break conformance. Two items — the plugin/platform config-schema match and the security review — are surfaced as _human review required_ rather than automated pass/fail, because they cannot be checked statically.
 
-The handoff manifest (`vip-manifest.yaml`) is checked against [`docs/vip-manifest.schema.json`](docs/vip-manifest.schema.json). Point your editor at it to catch mistakes while you write the manifest, including the validation rules a config field can declare (`min`, `pattern`, `format`, `list`, and so on).
+Point your editor at the generated [manifest JSON Schema](docs/vip-manifest.schema.json) for the supported fields and validation rules in `vip-manifest.yaml`. Run `vip-integration validate` to check the manifest, including constraints an editor's schema validation cannot check; see the [conformance checker architecture](docs/architecture.md#the-conformance-checker-libvalidate).
 
 ## Documentation
 

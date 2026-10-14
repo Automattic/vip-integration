@@ -99,6 +99,30 @@ describe( 'manifest field rules', () => {
 			'string with an email format',
 			{ key: 'a', label: 'A', type: 'string', format: 'email', example: 'ops@acme.example' },
 		],
+		...[
+			[ 'string', 'ip_or_cidr', '192.0.2.0/24' ],
+			[ 'text', 'ip_or_cidr', '192.0.2.0/24' ],
+			[ 'secret', 'ip_or_cidr', '192.0.2.0/24' ],
+			[ 'url', 'url', 'https://acme.example' ],
+			[ 'email', 'email', 'ops@acme.example' ],
+		].map( ( [ type, format, example ] ): [ string, Field ] => [
+			`${ type } with an explicit ${ format } format`,
+			{ key: 'a', label: 'A', type, format, example },
+		] ),
+		...[
+			[ 'url', 'email' ],
+			[ 'email', 'url' ],
+		].map( ( [ type, format ] ): [ string, Field ] => [
+			`${ type } satisfying both its type and ${ format } format`,
+			{
+				key: 'a',
+				label: 'A',
+				type,
+				format,
+				default: 'https://ops@acme.example',
+				example: 'https://ops@acme.example',
+			},
+		] ),
 		[
 			'secret with a pattern',
 			{ key: 'a', label: 'A', type: 'secret', pattern: 'sk_[a-z0-9]+', example: 'sk_123' },
@@ -129,6 +153,18 @@ describe( 'manifest field rules', () => {
 		[
 			'required field with nullable false',
 			{ key: 'a', label: 'A', type: 'url', required: true, nullable: false },
+		],
+		[
+			'required field with nullable true',
+			{ key: 'a', label: 'A', type: 'string', required: true, nullable: true },
+		],
+		...[ true, false ].map( ( example ): [ string, Field ] => [
+			`boolean example ${ example }`,
+			{ key: 'a', label: 'A', type: 'boolean', example },
+		] ),
+		[
+			'enum example from its values',
+			{ key: 'a', label: 'A', type: 'enum', values: [ 'x', 'y' ], example: 'x' },
 		],
 		[
 			'enum default from its values',
@@ -176,9 +212,9 @@ describe( 'manifest field rules', () => {
 			/"pattern" only applies/,
 		],
 		[
-			'format on a url field',
-			{ key: 'a', label: 'A', type: 'url', format: 'url' },
-			/"format" only applies to type "string"\./,
+			'format on a number field',
+			{ key: 'a', label: 'A', type: 'number', format: 'url' },
+			/"format" only applies to type "string", "text", "url", "email", "secret"\./,
 		],
 		[
 			'items on a string',
@@ -193,12 +229,12 @@ describe( 'manifest field rules', () => {
 		[
 			'example on a boolean',
 			{ key: 'a', label: 'A', type: 'boolean', example: 'yes' },
-			/"example" only applies/,
+			/example must be true or false/,
 		],
 		[
-			'example on an enum',
-			{ key: 'a', label: 'A', type: 'enum', values: [ 'x' ], example: 'x' },
-			/"example" only applies/,
+			'an enum example outside its values',
+			{ key: 'a', label: 'A', type: 'enum', values: [ 'x' ], example: 'y' },
+			/example must be one of: x/,
 		],
 		// Values the keys themselves take.
 		[
@@ -268,11 +304,6 @@ describe( 'manifest field rules', () => {
 			/needs an "example"/,
 		],
 		[
-			'a required nullable field',
-			{ key: 'a', label: 'A', type: 'string', required: true, nullable: true },
-			/A required field can't be nullable/,
-		],
-		[
 			'min greater than max',
 			{ key: 'a', label: 'A', type: 'number', min: 5, max: 1 },
 			/fields\.0 has "min" \(5\) greater than "max" \(1\)\./,
@@ -296,6 +327,22 @@ describe( 'manifest field rules', () => {
 			'a pattern that does not compile',
 			{ key: 'a', label: 'A', type: 'string', pattern: '([a-z]', example: 'a' },
 			/fields\.0\.pattern is not a valid regular expression/,
+		],
+		[
+			'an invalid pattern concealed by whole-value wrapping',
+			{ key: 'a', label: 'A', type: 'string', pattern: '[a-z]+)|(?:[0-9]+', example: 'abc!!!' },
+			/fields\.0\.pattern is not a valid regular expression/,
+		],
+		[
+			'an invalid list item pattern concealed by whole-value wrapping',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'list',
+				items: { type: 'string', pattern: '[a-z]+)|(?:[0-9]+' },
+				example: [ 'abc!!!' ],
+			},
+			/fields\.0\.items\.pattern is not a valid regular expression/,
 		],
 		[
 			// Valid without the `v` flag, but a browser would ignore it as an input's `pattern`.
@@ -345,6 +392,23 @@ describe( 'manifest field rules', () => {
 			{ key: 'a', label: 'A', type: 'string', format: 'url', default: 'acme.example' },
 			/default must be an http\(s\) URL/,
 		],
+		[
+			'an invalid IP example on text',
+			{ key: 'a', label: 'A', type: 'text', format: 'ip_or_cidr', example: 'acme.example' },
+			/example must be an IP address or CIDR range/,
+		],
+		...[
+			[ 'url', 'email', 'ops@acme.example', 'an http(s) URL' ],
+			[ 'email', 'url', 'https://acme.example', 'an email address' ],
+			[ 'url', 'email', 'https://acme.example', 'an email address' ],
+			[ 'email', 'url', 'ops@acme.example', 'an http(s) URL' ],
+		].flatMap( ( [ type, format, value, expected ] ) =>
+			[ 'default', 'example' ].map( ( key ): [ string, Field, RegExp ] => [
+				`${ key } on ${ type } with ${ format } format that is not ${ expected }`,
+				{ key: 'a', label: 'A', type, format, [ key ]: value },
+				expected === 'an email address' ? /must be an email address/ : /must be an http\(s\) URL/,
+			] )
+		),
 		[
 			'a non-http default on a url field',
 			{ key: 'a', label: 'A', type: 'url', default: 'ftp://acme.example' },
