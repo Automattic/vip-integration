@@ -48,7 +48,7 @@ export const FIELD_TYPES = [
 const STRING_VALUE_TYPES = [ 'string', 'text', 'url', 'email', 'secret' ];
 
 /**
- * Formats a `string` field or list item can declare. Each one maps to a fixed
+ * Formats a string-valued field or list item can declare. Each one maps to a fixed
  * check (and input hint) in the platform, so partners don't hand-write a regex
  * for common values.
  */
@@ -60,8 +60,7 @@ export const FIELD_UNITS = [ 'seconds', 'minutes', 'hours', 'days' ] as const;
 /**
  * The field types each validation key applies to. The schema rejects a key on
  * any other type (`min` on a string field), so a rule is never silently
- * ignored. `example` is left off boolean and enum: a toggle or a select has no
- * placeholder to show it in.
+ * ignored.
  */
 const RULE_TYPES: Record< string, readonly string[] > = {
 	integer: [ 'number' ],
@@ -71,10 +70,10 @@ const RULE_TYPES: Record< string, readonly string[] > = {
 	min_length: STRING_VALUE_TYPES,
 	max_length: STRING_VALUE_TYPES,
 	pattern: STRING_VALUE_TYPES,
-	format: [ 'string' ],
+	format: STRING_VALUE_TYPES,
 	items: [ 'list' ],
 	max_items: [ 'list' ],
-	example: FIELD_TYPES.filter( type => type !== 'boolean' && type !== 'enum' ),
+	example: FIELD_TYPES,
 };
 
 // Rules shared by string fields and list items.
@@ -337,7 +336,7 @@ export const MANIFEST_SCHEMA = {
 						'Optional default value pre-filled in the form. Must follow the field\'s own rules; a list for "list" fields.',
 				},
 				example: {
-					type: [ 'string', 'number', 'array' ],
+					type: [ 'string', 'number', 'boolean', 'array' ],
 					items: { type: 'string' },
 					description:
 						'Optional example value, shown as the input placeholder. Must follow the field\'s own rules; a list for "list" fields.',
@@ -415,11 +414,6 @@ export const MANIFEST_SCHEMA = {
 						],
 					},
 					then: { required: [ 'example' ] },
-				},
-				{
-					$comment: "A required field can't be nullable, since it can't be cleared.",
-					if: { required: [ 'required' ], properties: { required: { const: true } } },
-					then: { properties: { nullable: { const: false } } },
 				},
 				...Object.entries( RULE_TYPES ).map( ( [ key, types ] ) => ( {
 					$comment: `"${ key }" only applies to type ${ types

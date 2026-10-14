@@ -74,11 +74,13 @@ function compilePattern( pattern: string ): RegExp | string {
 	const source = `^(?:${ pattern })$`;
 	try {
 		// eslint-disable-next-line security/detect-non-literal-regexp
+		new RegExp( pattern, 'v' );
+		// eslint-disable-next-line security/detect-non-literal-regexp
 		return new RegExp( source, 'v' );
 	} catch ( error ) {
 		try {
 			// eslint-disable-next-line security/detect-non-literal-regexp
-			new RegExp( source, 'u' );
+			new RegExp( pattern, 'u' );
 		} catch {
 			return error instanceof Error ? error.message.replace( /^.*: /, '' ) : String( error );
 		}
