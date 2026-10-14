@@ -15,6 +15,9 @@
  * The `documentation`, `telemetry`, and `release` sections mirror the shapes in
  * the draft VIP Integration Handoff spec, so this schema converges toward it
  * rather than forking a third variant.
+ *
+ * `pnpm schema` writes it to `docs/vip-manifest.schema.json` (see
+ * `manifestJsonSchema`), the copy the Starter Kit ships.
  */
 
 /** The `manifest_kind` value that identifies a handoff manifest. */
@@ -38,7 +41,65 @@ export const FIELD_TYPES = [
 	'boolean',
 	'secret',
 	'enum',
+	'list',
 ] as const;
+
+/** Field types whose value is a string, so the length and pattern rules apply. */
+const STRING_VALUE_TYPES = [ 'string', 'text', 'url', 'email', 'secret' ];
+
+/**
+ * Formats a `string` field or list item can declare. Each one maps to a fixed
+ * check (and input hint) in the platform, so partners don't hand-write a regex
+ * for common values.
+ */
+export const FIELD_FORMATS = [ 'ip_or_cidr', 'url', 'email' ] as const;
+
+/** Units a `number` field can declare, shown next to the input. */
+export const FIELD_UNITS = [ 'seconds', 'minutes', 'hours', 'days' ] as const;
+
+/**
+ * The field types each validation key applies to. The schema rejects a key on
+ * any other type (`min` on a string field), so a rule is never silently
+ * ignored. `example` is left off boolean and enum: a toggle or a select has no
+ * placeholder to show it in.
+ */
+const RULE_TYPES: Record< string, readonly string[] > = {
+	integer: [ 'number' ],
+	min: [ 'number' ],
+	max: [ 'number' ],
+	unit: [ 'number' ],
+	min_length: STRING_VALUE_TYPES,
+	max_length: STRING_VALUE_TYPES,
+	pattern: STRING_VALUE_TYPES,
+	format: [ 'string' ],
+	items: [ 'list' ],
+	max_items: [ 'list' ],
+	example: FIELD_TYPES.filter( type => type !== 'boolean' && type !== 'enum' ),
+};
+
+// Rules shared by string fields and list items.
+const STRING_RULES = {
+	min_length: {
+		type: 'integer',
+		minimum: 0,
+		description: 'Minimum number of characters.',
+	},
+	max_length: {
+		type: 'integer',
+		minimum: 1,
+		description: 'Maximum number of characters.',
+	},
+	pattern: {
+		type: 'string',
+		minLength: 1,
+		description:
+			'Regular expression (JavaScript syntax) the whole value must match. Needs an "example", so the form can show the expected format.',
+	},
+	format: {
+		enum: [ ...FIELD_FORMATS ],
+		description: 'A common format the value must have, e.g. ip_or_cidr.',
+	},
+} as const;
 
 const SLUG_PATTERN = '^[a-z0-9]+(-[a-z0-9]+)*$';
 const KEY_PATTERN = '^[a-z0-9]+(_[a-z0-9]+)*$';
@@ -270,14 +331,53 @@ export const MANIFEST_SCHEMA = {
 					description: 'Optional helper text shown under the field.',
 				},
 				default: {
-					type: [ 'string', 'number', 'boolean' ],
-					description: 'Optional default value pre-filled in the form.',
+					type: [ 'string', 'number', 'boolean', 'array' ],
+					items: { type: 'string' },
+					description:
+						'Optional default value pre-filled in the form. Must follow the field\'s own rules; a list for "list" fields.',
+				},
+				example: {
+					type: [ 'string', 'number', 'array' ],
+					items: { type: 'string' },
+					description:
+						'Optional example value, shown as the input placeholder. Must follow the field\'s own rules; a list for "list" fields.',
+				},
+				nullable: {
+					type: 'boolean',
+					description:
+						'Whether saving null clears the value, so the plugin falls back to its own default. Defaults to false.',
 				},
 				values: {
 					type: 'array',
 					minItems: 1,
 					items: { type: 'string' },
 					description: 'Allowed values. Required when "type" is "enum".',
+				},
+				integer: {
+					type: 'boolean',
+					description: 'Number fields only: whether the value must be a whole number.',
+				},
+				min: {
+					type: 'number',
+					description: 'Number fields only: the smallest allowed value.',
+				},
+				max: {
+					type: 'number',
+					description: 'Number fields only: the largest allowed value.',
+				},
+				unit: {
+					enum: [ ...FIELD_UNITS ],
+					description: 'Number fields only: the unit the value is in, e.g. seconds.',
+				},
+				...STRING_RULES,
+				items: {
+					$ref: '#/$defs/listItem',
+					description: 'List fields only: what each entry must be. Required when "type" is "list".',
+				},
+				max_items: {
+					type: 'integer',
+					minimum: 1,
+					description: 'List fields only: the most entries the list may have.',
 				},
 				autogen: {
 					type: 'boolean',
@@ -289,12 +389,59 @@ export const MANIFEST_SCHEMA = {
 					description: "Optional note on the field's purpose or usage. For internal use.",
 				},
 			},
+			// Every rule needs a $comment: it is the message `validate` shows when
+			// the rule fails, in place of Ajv's bare "must match "then" schema".
 			allOf: [
 				{
-					if: { properties: { type: { const: 'enum' } } },
+					$comment: 'An enum field needs "values".',
+					if: { required: [ 'type' ], properties: { type: { const: 'enum' } } },
 					then: { required: [ 'values' ] },
 				},
+				{
+					$comment: 'A list field needs "items".',
+					if: { required: [ 'type' ], properties: { type: { const: 'list' } } },
+					then: { required: [ 'items' ] },
+				},
+				{
+					$comment:
+						'A field with "pattern" needs an "example", so the form can show the expected format.',
+					if: {
+						anyOf: [
+							{ required: [ 'pattern' ] },
+							{
+								required: [ 'items' ],
+								properties: { items: { type: 'object', required: [ 'pattern' ] } },
+							},
+						],
+					},
+					then: { required: [ 'example' ] },
+				},
+				{
+					$comment: "A required field can't be nullable, since it can't be cleared.",
+					if: { required: [ 'required' ], properties: { required: { const: true } } },
+					then: { properties: { nullable: { const: false } } },
+				},
+				...Object.entries( RULE_TYPES ).map( ( [ key, types ] ) => ( {
+					$comment: `"${ key }" only applies to type ${ types
+						.map( type => `"${ type }"` )
+						.join( ', ' ) }.`,
+					if: { required: [ key ] },
+					then: { properties: { type: { enum: types } } },
+				} ) ),
 			],
+		},
+		listItem: {
+			type: 'object',
+			additionalProperties: false,
+			required: [ 'type' ],
+			description: 'What each entry of a list field must be.',
+			properties: {
+				type: {
+					enum: [ 'string' ],
+					description: 'Entry type. Only "string" for now.',
+				},
+				...STRING_RULES,
+			},
 		},
 		telemetryEvent: {
 			type: 'object',
@@ -330,3 +477,13 @@ export const MANIFEST_SCHEMA = {
 		},
 	},
 } as const;
+
+/**
+ * The schema as the standalone JSON file partners point their editor at. It
+ * adds the `$schema` dialect, which stays out of `MANIFEST_SCHEMA` because the
+ * default Ajv build compiles draft-07 and rejects a 2020-12 `$schema`. The
+ * keywords used here behave the same under both.
+ */
+export function manifestJsonSchema(): Record< string, unknown > {
+	return { $schema: 'https://json-schema.org/draft/2020-12/schema', ...MANIFEST_SCHEMA };
+}

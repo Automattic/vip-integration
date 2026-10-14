@@ -20,6 +20,7 @@ import { load } from 'js-yaml';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { fieldRuleIssues } from './manifest.fields';
 import { MANIFEST_PLACEHOLDER, MANIFEST_SCHEMA } from './manifest.schema';
 
 import type { ErrorObject, ValidateFunction } from 'ajv';
@@ -41,8 +42,9 @@ export interface ManifestInspection {
 }
 
 // One compiled validator, reused across every inspection. allowUnionTypes lets
-// a field `default` accept a string, number, or boolean.
-const ajv = new Ajv( { allErrors: true, allowUnionTypes: true } );
+// a field `default` accept a string, number, boolean, or list. verbose puts the
+// failing rule on each error, so describeErrors can read its $comment.
+const ajv = new Ajv( { allErrors: true, allowUnionTypes: true, verbose: true } );
 const validateManifest: ValidateFunction = ajv.compile( MANIFEST_SCHEMA );
 
 function isRecord( value: unknown ): value is Record< string, unknown > {
@@ -85,6 +87,29 @@ function describeError( error: ErrorObject ): string {
 		default:
 			return `${ where } ${ error.message ?? 'is invalid' }.`;
 	}
+}
+
+/**
+ * Turn Ajv's errors into partner-facing messages. A failed if/then rule comes
+ * back as a bare "must match "then" schema" plus the low-level error inside
+ * `then`; report it once, with the rule's $comment, and drop the inner error.
+ */
+function describeErrors( errors: ErrorObject[] ): string[] {
+	const messages = errors.flatMap( error => {
+		if ( error.keyword === 'if' ) {
+			const comment = ( error.parentSchema as { $comment?: unknown } | undefined )?.$comment;
+			return [
+				typeof comment === 'string'
+					? `${ locationOf( error ) }: ${ comment }`
+					: describeError( error ),
+			];
+		}
+		if ( error.schemaPath.includes( '/then/' ) ) {
+			return [];
+		}
+		return [ describeError( error ) ];
+	} );
+	return [ ...new Set( messages ) ];
 }
 
 // The sentinel as a whole token, so a real value that merely embeds it as part
@@ -146,11 +171,9 @@ export function inspectManifest( root: string ): ManifestInspection {
 	const placeholders: string[] = [];
 	collectPlaceholders( parsed, '', placeholders );
 
-	if ( validateManifest( parsed ) ) {
-		return { file, parseError: null, errors: [], parsed, placeholders };
-	}
-
-	// De-duplicate: the `enum`/`if` combo can surface the same underlying issue twice.
-	const errors = [ ...new Set( ( validateManifest.errors ?? [] ).map( describeError ) ) ];
+	// The field rule checks assume the schema's shape, so they only run once it passes.
+	const errors = validateManifest( parsed )
+		? fieldRuleIssues( parsed )
+		: describeErrors( validateManifest.errors ?? [] );
 	return { file, parseError: null, errors, parsed, placeholders };
 }

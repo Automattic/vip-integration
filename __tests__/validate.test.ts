@@ -438,6 +438,27 @@ describe( 'validateIntegration', () => {
 		expect( rule3?.details?.join( '\n' ) ).toMatch( /values/ );
 	} );
 
+	it( "fails rule 3 when a config field default breaks the field's own rules", () => {
+		const root = join( dir, 'manifest-field-rules' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest().replace(
+				'      type: url\n',
+				'      type: url\n      default: ftp://acme.example\n'
+			)
+		);
+
+		const rule3 = validateIntegration( root ).results.find(
+			result => result.id === 'handoff-manifest'
+		);
+		expect( rule3?.status ).toBe( 'fail' );
+		expect( rule3?.details ).toEqual( [
+			'runtime_config.fields.0.default must be an http(s) URL.',
+		] );
+	} );
+
 	it( 'fails rule 3 when a manifest key is misspelled (unknown field)', () => {
 		const root = join( dir, 'manifest-typo' );
 		mkdirSync( root, { recursive: true } );
