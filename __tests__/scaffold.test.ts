@@ -34,6 +34,7 @@ describe( 'derivePrefixSet', () => {
 			vendorKebab: 'acme',
 			nameKebab: 'content-sync',
 			nameSnake: 'content_sync',
+			nameSquashed: 'contentsync',
 			nameUpper: 'CONTENT_SYNC',
 			configConstant: 'VIP_CONTENT_SYNC_CONFIG',
 		} );
@@ -81,6 +82,15 @@ describe( 'rewriteContents', () => {
 		expect( rewriteContents( 'example-vendor/example-integration', replacements ) ).toBe(
 			'acme/content-sync'
 		);
+	} );
+
+	it( 'squashes the telemetry prefix into a single word', () => {
+		expect(
+			rewriteContents(
+				'prefix: exampleintegration_\noption: example_integration_settings',
+				replacements
+			)
+		).toBe( 'prefix: contentsync_\noption: content_sync_settings' );
 	} );
 
 	it( 'preserves everything from the token-table marker onward', () => {

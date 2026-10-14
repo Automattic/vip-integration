@@ -39,6 +39,7 @@ export interface PrefixSet {
 	vendorKebab: string;
 	nameKebab: string;
 	nameSnake: string;
+	nameSquashed: string;
 	nameUpper: string;
 	configConstant: string;
 }
@@ -101,6 +102,9 @@ export function derivePrefixSet( vendor: string, name: string ): PrefixSet {
 		vendorKebab: kebabCase( vendor ),
 		nameKebab,
 		nameSnake,
+		// Tracks prefixes are a single token, so the telemetry prefix squashes the
+		// name instead of joining its words: "Content Sync" becomes `contentsync_`.
+		nameSquashed: nameKebab.replace( /-/g, '' ),
 		nameUpper: nameSnake.toUpperCase(),
 		configConstant: `VIP_${ nameSnake.toUpperCase() }_CONFIG`,
 	};
@@ -113,6 +117,7 @@ export function buildReplacements( prefix: PrefixSet ): Array< [ string, string 
 		[ 'ExampleVendor', prefix.vendorPascal ],
 		[ 'ExampleIntegration', prefix.namePascal ],
 		[ 'VIP_EXAMPLE_INTEGRATION', `VIP_${ prefix.nameUpper }` ],
+		[ 'exampleintegration', prefix.nameSquashed ],
 		[ 'example_integration', prefix.nameSnake ],
 		[ 'example-integration', prefix.nameKebab ],
 		[ 'Example Integration', wordsCase( prefix.nameKebab ) ],
