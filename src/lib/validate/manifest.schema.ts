@@ -4,8 +4,8 @@
  * This is the single source of truth for what a manifest may contain and the
  * constraints on each field. `manifest.ts` compiles it with Ajv and validates a
  * parsed manifest against it, so adding or tightening a rule means editing the
- * schema here — not hand-written checks. The Starter Kit ships an identical
- * `vip-manifest.schema.json` so partners get the same contract in their editor.
+ * schema here — not hand-written checks. Partners can use the generated
+ * `docs/vip-manifest.schema.json` to get the same contract in their editor.
  *
  * `additionalProperties: false` is set on every defined object on purpose: VIP
  * registers the integration from this file alone, so an unexpected or
@@ -17,7 +17,7 @@
  * rather than forking a third variant.
  *
  * `pnpm schema` writes it to `docs/vip-manifest.schema.json` (see
- * `manifestJsonSchema`), the copy the Starter Kit ships.
+ * `manifestJsonSchema`). See `docs/testing.md` for regeneration instructions.
  */
 
 /** The `manifest_kind` value that identifies a handoff manifest. */

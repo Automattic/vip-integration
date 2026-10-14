@@ -35,6 +35,10 @@ Interactive — it asks for your **vendor name** and **integration name**, alway
 vip-integration init --vendor "WordPress" --name "Content Sync"
 ```
 
+For this example, `init` rewrites the Starter Kit's `exampleintegration_`
+telemetry prefix to `contentsync_`; other snake-case code prefixes remain
+`content_sync_`.
+
 | Flag                | Description                                          |
 | ------------------- | ---------------------------------------------------- |
 | `--vendor <vendor>` | Vendor name, e.g. `"My Vendor"`.                     |
