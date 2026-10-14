@@ -1,11 +1,10 @@
 /**
  * JSON Schema for the VIP integration handoff manifest (`vip-manifest.yaml`).
  *
- * This is the single source of truth for what a manifest may contain and the
- * constraints on each field. `manifest.ts` compiles it with Ajv and validates a
- * parsed manifest against it, so adding or tightening a rule means editing the
- * schema here — not hand-written checks. The Starter Kit ships an identical
- * `vip-manifest.schema.json` so partners get the same contract in their editor.
+ * This owns the manifest's shape and validation-key applicability.
+ * `manifest.ts` compiles it with Ajv before running the semantic checks in
+ * `manifest.fields.ts`. Keep schema-expressible constraints here so editor
+ * validation and the CLI share them.
  *
  * `additionalProperties: false` is set on every defined object on purpose: VIP
  * registers the integration from this file alone, so an unexpected or
@@ -16,8 +15,8 @@
  * the draft VIP Integration Handoff spec, so this schema converges toward it
  * rather than forking a third variant.
  *
- * `pnpm schema` writes it to `docs/vip-manifest.schema.json` (see
- * `manifestJsonSchema`), the copy the Starter Kit ships.
+ * See docs/testing.md#the-manifest-json-schema for regenerating the editor
+ * schema through `manifestJsonSchema`.
  */
 
 /** The `manifest_kind` value that identifies a handoff manifest. */
