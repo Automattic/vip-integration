@@ -647,7 +647,9 @@ describe( 'validateIntegration', () => {
 			expect( report.results.find( result => result.id === 'config-constant-documented' ) ).toEqual(
 				expect.objectContaining( {
 					status: 'fail',
-					message: expect.stringContaining( 'but the plugin references VIP_ACME_CONFIG' ),
+					message: expect.stringContaining(
+						'but the plugin references VIP_ACME_CONFIG'
+					) as jest.AsymmetricMatcher,
 				} )
 			);
 		}
@@ -710,7 +712,7 @@ describe( 'validateIntegration', () => {
 
 			const report = validateIntegration( root );
 			expect( report.configChecksSkipped ).toBe( true );
-			for ( const result of report.results.filter( result => [ 4, 5, 6 ].includes( result.rule ) ) ) {
+			for ( const result of report.results.filter( check => [ 4, 5, 6 ].includes( check.rule ) ) ) {
 				expect( result.status ).toBe( 'not_applicable' );
 				expect( result.message ).toContain( 'No runtime config constant detected' );
 			}
