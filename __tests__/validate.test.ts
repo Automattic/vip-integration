@@ -42,11 +42,11 @@ function conformantManifest(): string {
 		'        - export',
 		'        - import',
 		'telemetry:',
-		'  prefix: acme_widget_',
+		'  prefix: acmewidget_',
 		'  default_properties:',
 		'    - plugin_version',
 		'  events:',
-		'    - name: acme_widget_sync_started',
+		'    - name: acmewidget_sync_started',
 		'      type: tracks',
 		'      trigger: A sync starts.',
 		'      properties:',
@@ -820,7 +820,23 @@ describe( 'validateIntegration', () => {
 		scaffoldConformant( root );
 		writeFileSync(
 			join( root, 'vip-manifest.yaml' ),
-			conformantManifest().replace( 'prefix: acme_widget_', 'prefix: acme_widget' )
+			conformantManifest().replace( 'prefix: acmewidget_', 'prefix: acmewidget' )
+		);
+
+		const rule3 = validateIntegration( root ).results.find(
+			result => result.id === 'handoff-manifest'
+		);
+		expect( rule3?.status ).toBe( 'fail' );
+		expect( rule3?.details?.join( '\n' ) ).toMatch( /prefix is malformed/ );
+	} );
+
+	it( 'fails rule 3 when the telemetry prefix is more than one word', () => {
+		const root = join( dir, 'manifest-multi-word-telemetry' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest().replace( 'prefix: acmewidget_', 'prefix: acme_widget_' )
 		);
 
 		const rule3 = validateIntegration( root ).results.find(
@@ -837,7 +853,7 @@ describe( 'validateIntegration', () => {
 		writeFileSync(
 			join( root, 'vip-manifest.yaml' ),
 			conformantManifest().replace(
-				'telemetry:\n  prefix: acme_widget_\n  default_properties:\n    - plugin_version\n  events:\n    - name: acme_widget_sync_started\n      type: tracks\n      trigger: A sync starts.\n      properties:\n        - trigger\n',
+				'telemetry:\n  prefix: acmewidget_\n  default_properties:\n    - plugin_version\n  events:\n    - name: acmewidget_sync_started\n      type: tracks\n      trigger: A sync starts.\n      properties:\n        - trigger\n',
 				''
 			)
 		);

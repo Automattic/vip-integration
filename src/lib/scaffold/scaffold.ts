@@ -39,6 +39,7 @@ export interface PrefixSet {
 	vendorKebab: string;
 	nameKebab: string;
 	nameSnake: string;
+	nameSquashed: string;
 	nameUpper: string;
 	configConstant: string;
 }
@@ -110,6 +111,9 @@ export function derivePrefixSet( vendor: string, name: string ): PrefixSet {
 		vendorKebab: kebabCase( vendor ),
 		nameKebab,
 		nameSnake,
+		// Tracks prefixes are a single token, so the telemetry prefix squashes the
+		// name instead of joining its words: "Content Sync" becomes `contentsync_`.
+		nameSquashed: nameKebab.replace( /-/g, '' ),
 		nameUpper: nameSnake.toUpperCase(),
 		configConstant: `VIP_${ nameSnake.toUpperCase() }_CONFIG`,
 	};
@@ -122,6 +126,7 @@ export function buildReplacements( prefix: PrefixSet ): Array< [ string, string 
 		[ 'ExampleVendor', prefix.vendorPascal ],
 		[ 'ExampleIntegration', prefix.namePascal ],
 		[ 'VIP_EXAMPLE_INTEGRATION', `VIP_${ prefix.nameUpper }` ],
+		[ 'exampleintegration', prefix.nameSquashed ],
 		[ 'example_integration', prefix.nameSnake ],
 		[ 'example-integration', prefix.nameKebab ],
 		[ 'Example Integration', wordsCase( prefix.nameKebab ) ],
@@ -264,9 +269,9 @@ export function scaffoldTree( root: string, vendor: string, name: string ): Scaf
  *    "fill this in", not a schema error.
  *
  * The rest is either already set by the prefix rewrite (slug, names, namespace,
- * constant) or is real integration content (the config fields, telemetry) the
- * partner edits as they build. All comment-preserving line edits, so the
- * `# yaml-language-server` modeline and inline notes survive.
+ * constant, telemetry prefix) or is real integration content (the config fields,
+ * telemetry declarations) the partner edits as they build. All edits preserve
+ * comments, so the `# yaml-language-server` modeline and inline notes survive.
  */
 function personalizeManifest( root: string, prefix: PrefixSet ): void {
 	const file = MANIFEST_FILENAMES.map( name => join( root, name ) ).find( existsSync );

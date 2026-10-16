@@ -44,7 +44,7 @@ Beyond the schema and the field checks, the same rule adds two more. First, it *
 
 ## The scaffolder (`lib/scaffold`)
 
-It derives a prefix set (pascal / kebab / snake / upper forms) from the vendor and integration names and rewrites the example tokens (`ExampleVendor`, `example-integration`, `VIP_EXAMPLE_INTEGRATION`, ...) across the tree. `init` reports the slug-derived config constant described above so the partner knows which constant their plugin reads. Replacement uses PHP `strtr` semantics — longest match wins and a replacement is never re-scanned.
+It derives a prefix set (pascal / kebab / snake / squashed / upper forms) from the vendor and integration names and rewrites the example tokens (`ExampleVendor`, `example-integration`, `VIP_EXAMPLE_INTEGRATION`, ...) across the tree. `init` reports the slug-derived config constant described above so the partner knows which constant their plugin reads. Replacement uses PHP `strtr` semantics — longest match wins and a replacement is never re-scanned.
 
 ## Dependencies
 
