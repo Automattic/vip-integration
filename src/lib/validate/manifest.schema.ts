@@ -144,7 +144,7 @@ export const MANIFEST_SCHEMA = {
 		manifest_version: {
 			enum: [ 1, 2 ],
 			description:
-				'Manifest format version. Version 2 derives the config constant from the slug; version 1 is deprecated (it declared the constant via runtime_config.constant_name) and is accepted with a warning during the deprecation window.',
+				'Manifest format version. Version 2 derives the config constant from the slug. Version 1 is deprecated and accepted during the deprecation window, with a warning only when runtime_config.constant_name declares the matching derived name. Omitting constant_name produces no warning.',
 		},
 		manifest_kind: {
 			const: MANIFEST_KIND,
