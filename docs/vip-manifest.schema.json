@@ -329,6 +329,11 @@
           "then": { "required": [ "example" ] }
         },
         {
+          "$comment": "A required field can't be nullable, since it can't be cleared.",
+          "if": { "required": [ "required" ], "properties": { "required": { "const": true } } },
+          "then": { "properties": { "nullable": { "const": false } } }
+        },
+        {
           "$comment": "\"integer\" only applies to type \"number\".",
           "if": { "required": [ "integer" ] },
           "then": { "properties": { "type": { "enum": [ "number" ] } } }

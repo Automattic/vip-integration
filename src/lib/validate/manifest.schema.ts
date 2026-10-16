@@ -450,6 +450,11 @@ export const MANIFEST_SCHEMA = {
 					},
 					then: { required: [ 'example' ] },
 				},
+				{
+					$comment: "A required field can't be nullable, since it can't be cleared.",
+					if: { required: [ 'required' ], properties: { required: { const: true } } },
+					then: { properties: { nullable: { const: false } } },
+				},
 				...Object.entries( RULE_TYPES ).map( ( [ key, types ] ) => ( {
 					$comment: `"${ key }" only applies to type ${ types
 						.map( type => `"${ type }"` )

@@ -154,10 +154,6 @@ describe( 'manifest field rules', () => {
 			'required field with nullable false',
 			{ key: 'a', label: 'A', type: 'url', required: true, nullable: false },
 		],
-		[
-			'required field with nullable true',
-			{ key: 'a', label: 'A', type: 'string', required: true, nullable: true },
-		],
 		...[ true, false ].map( ( example ): [ string, Field ] => [
 			`boolean example ${ example }`,
 			{ key: 'a', label: 'A', type: 'boolean', example },
@@ -302,6 +298,11 @@ describe( 'manifest field rules', () => {
 			'a list item pattern without an example',
 			{ key: 'a', label: 'A', type: 'list', items: { type: 'string', pattern: '[a-z]+' } },
 			/needs an "example"/,
+		],
+		[
+			'a required nullable field',
+			{ key: 'a', label: 'A', type: 'string', required: true, nullable: true },
+			/fields\.0: A required field can't be nullable/,
 		],
 		[
 			'min greater than max',
