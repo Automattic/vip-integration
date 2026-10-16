@@ -474,6 +474,36 @@ describe( 'derivedConfigConstant', () => {
 		expect( derivedConfigConstant( 'content-for-agents' ) ).toBe( 'VIP_CONTENT_FOR_AGENTS_CONFIG' );
 		expect( derivedConfigConstant( 'acme-widget' ) ).toBe( 'VIP_ACME_WIDGET_CONFIG' );
 	} );
+
+	it( 'strips characters outside [A-Za-z0-9_-] so the result is always a regex-safe identifier', () => {
+		// Regression guard: a hostile slug used to reach the defined() RegExp
+		// construction verbatim (see the config guard in validate.ts). An
+		// all-hostile slug degrades to the empty identifier, which the schema
+		// already rejects upstream (slug minLength 3).
+		expect( derivedConfigConstant( '[' ) ).toBe( 'VIP__CONFIG' );
+		expect( derivedConfigConstant( 'a[b' ) ).toBe( 'VIP_AB_CONFIG' );
+		expect( derivedConfigConstant( 'a(b)c$d' ) ).toBe( 'VIP_ABCD_CONFIG' );
+		for ( const hostile of [
+			'a]b',
+			'a.b',
+			'a*b',
+			'a+b',
+			'a?b',
+			'a\\b',
+			'a$b',
+			'a^b',
+			'a|b',
+			'a/b',
+			'a b',
+		] ) {
+			const constant = derivedConfigConstant( hostile );
+			expect( constant ).toMatch( /^VIP_[A-Z0-9_]+_CONFIG$/ );
+			expect(
+				// eslint-disable-next-line security/detect-non-literal-regexp
+				() => new RegExp( String.raw`defined\s*\(\s*(self::CONSTANT_NAME|'${ constant }')` )
+			).not.toThrow();
+		}
+	} );
 } );
 
 describe( 'constant_name deprecation window', () => {

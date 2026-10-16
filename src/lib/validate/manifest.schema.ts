@@ -116,7 +116,8 @@ const SEMVER_PATTERN = '^[0-9]+\\.[0-9]+\\.[0-9]+([-+][A-Za-z0-9.-]+)?$';
  * declared name could drift from the slug, and the platform derives it anyway.
  */
 export function derivedConfigConstant( slug: string ): string {
-	return `VIP_${ slug.replace( /-/g, '_' ).toUpperCase() }_CONFIG`;
+	const safe = slug.replace( /[^A-Za-z0-9_-]/g, '' );
+	return `VIP_${ safe.replace( /-/g, '_' ).toUpperCase() }_CONFIG`;
 }
 
 export const MANIFEST_SCHEMA = {
