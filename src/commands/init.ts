@@ -236,7 +236,7 @@ export async function initCommand( opts: InitOptions = {} ): Promise< void > {
 			'docs/vip-integration.md'
 		) } to learn how to use your runtime config (${
 			prefix.configConstant
-		}) and complete the integration.`,
+		} — derived from the slug, not declared in the manifest) and complete the integration.`,
 		`Follow ${ cyan(
 			'docs/manifest.md'
 		) } to configure vip-manifest.yaml, which is required before submitting the integration.`,

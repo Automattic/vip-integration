@@ -7,12 +7,8 @@
  * loader, the integration service registration + secret sync, and the
  * Integration Center catalog entry and config form.
  *
- * This module reads that file and validates it against `MANIFEST_SCHEMA`, the
- * JSON Schema that is the single source of truth for the manifest's shape and
- * constraints. It is a presence-and-shape check — it confirms the manifest
- * gives VIP everything it must have, in the right form, to register the
- * integration; it does not verify the values are correct (that a URL resolves,
- * a secret is real).
+ * Validation flow and scope are documented in docs/architecture.md under
+ * "The conformance checker".
  */
 
 import Ajv from 'ajv';
@@ -20,7 +16,8 @@ import { load } from 'js-yaml';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { MANIFEST_PLACEHOLDER, MANIFEST_SCHEMA } from './manifest.schema';
+import { fieldRuleIssues } from './manifest.fields';
+import { derivedConfigConstant, MANIFEST_PLACEHOLDER, MANIFEST_SCHEMA } from './manifest.schema';
 
 import type { ErrorObject, ValidateFunction } from 'ajv';
 
@@ -32,17 +29,24 @@ export interface ManifestInspection {
 	file: string | null;
 	/** Set when the file exists but is not parseable / not a mapping. */
 	parseError: string | null;
-	/** Human-readable schema violations. Empty when the manifest is conformant. */
+	/** Schema, field-rule, and deprecation errors; placeholders are reported separately. */
 	errors: string[];
 	/** The parsed manifest, or null when it was missing / unparseable. */
 	parsed: Record< string, unknown > | null;
 	/** Dotted paths whose string value still contains the init placeholder. */
 	placeholders: string[];
+	/**
+	 * Deprecation warnings: a version 1 manifest that still declares a
+	 * `runtime_config.constant_name` equal to the derived name. Warnings do not
+	 * break conformance; a *differing* name is an error, not a warning.
+	 */
+	warnings: string[];
 }
 
 // One compiled validator, reused across every inspection. allowUnionTypes lets
-// a field `default` accept a string, number, or boolean.
-const ajv = new Ajv( { allErrors: true, allowUnionTypes: true } );
+// a field `default` accept a string, number, boolean, or list. verbose puts the
+// failing rule on each error, so describeErrors can read its $comment.
+const ajv = new Ajv( { allErrors: true, allowUnionTypes: true, verbose: true } );
 const validateManifest: ValidateFunction = ajv.compile( MANIFEST_SCHEMA );
 
 function isRecord( value: unknown ): value is Record< string, unknown > {
@@ -87,6 +91,29 @@ function describeError( error: ErrorObject ): string {
 	}
 }
 
+/**
+ * Turn Ajv's errors into partner-facing messages. A failed if/then rule comes
+ * back as a bare "must match "then" schema" plus the low-level error inside
+ * `then`; report it once, with the rule's $comment, and drop the inner error.
+ */
+function describeErrors( errors: ErrorObject[] ): string[] {
+	const messages = errors.flatMap( error => {
+		if ( error.keyword === 'if' ) {
+			const comment = ( error.parentSchema as { $comment?: unknown } | undefined )?.$comment;
+			return [
+				typeof comment === 'string'
+					? `${ locationOf( error ) }: ${ comment }`
+					: describeError( error ),
+			];
+		}
+		if ( error.schemaPath.includes( '/then/' ) ) {
+			return [];
+		}
+		return [ describeError( error ) ];
+	} );
+	return [ ...new Set( messages ) ];
+}
+
 // The sentinel as a whole token, so a real value that merely embeds it as part
 // of a longer word (`REPLACE_ME_TOKEN`) isn't flagged as an unfilled placeholder.
 // MANIFEST_PLACEHOLDER is a fixed alphabetic sentinel, so interpolation is safe.
@@ -113,13 +140,62 @@ function collectPlaceholders( value: unknown, path: string, out: string[] ): voi
 }
 
 /**
+ * Deprecation check for a schema-valid manifest: `runtime_config.constant_name`
+ * was removed in manifest version 2 — the constant is derived from the slug
+ * (`VIP_<SLUG>_CONFIG`). During the deprecation window a version 1 manifest may
+ * still declare it: a name equal to the derived one warns (accepted), any other
+ * name fails, because the platform would define a different constant than the
+ * plugin reads. Returns warnings to surface and errors to fail on.
+ */
+function constantNameDeprecation( parsed: Record< string, unknown > ): {
+	warnings: string[];
+	errors: string[];
+} {
+	const runtimeConfig = parsed.runtime_config;
+	if ( ! isRecord( runtimeConfig ) || ! ( 'constant_name' in runtimeConfig ) ) {
+		return { warnings: [], errors: [] };
+	}
+
+	const slug = isRecord( parsed.integration ) ? parsed.integration.slug : undefined;
+	const declared = runtimeConfig.constant_name;
+	const where = `${ MANIFEST_FILENAMES[ 0 ] } runtime_config.constant_name`;
+
+	if ( typeof declared !== 'string' || typeof slug !== 'string' ) {
+		return { warnings: [], errors: [] };
+	}
+
+	const derived = derivedConfigConstant( slug );
+	if ( declared === derived ) {
+		return {
+			warnings: [
+				`${ where }: deprecated — the constant is derived from the slug as ${ derived }. Remove the field (and bump manifest_version to 2); it is accepted while it matches.`,
+			],
+			errors: [],
+		};
+	}
+	return {
+		warnings: [],
+		errors: [
+			`${ where } is "${ declared }" but the constant is derived from the slug as "${ derived }". Remove the field — the platform defines ${ derived } regardless.`,
+		],
+	};
+}
+
+/**
  * Read and validate the handoff manifest at `root`. Returns what was found so
  * the caller can render a conformance verdict; it never throws.
  */
 export function inspectManifest( root: string ): ManifestInspection {
 	const file = findManifestFile( root );
 	if ( ! file ) {
-		return { file: null, parseError: null, errors: [], parsed: null, placeholders: [] };
+		return {
+			file: null,
+			parseError: null,
+			errors: [],
+			parsed: null,
+			placeholders: [],
+			warnings: [],
+		};
 	}
 
 	let parsed: unknown;
@@ -131,7 +207,7 @@ export function inspectManifest( root: string ): ManifestInspection {
 		parsed = load( readFileSync( join( root, file ), 'utf8' ), { maxAliases: 0 } );
 	} catch ( error ) {
 		const reason = error instanceof Error ? error.message.split( '\n' )[ 0 ] : String( error );
-		return { file, parseError: reason, errors: [], parsed: null, placeholders: [] };
+		return { file, parseError: reason, errors: [], parsed: null, placeholders: [], warnings: [] };
 	}
 	if ( ! isRecord( parsed ) ) {
 		return {
@@ -140,17 +216,31 @@ export function inspectManifest( root: string ): ManifestInspection {
 			errors: [],
 			parsed: null,
 			placeholders: [],
+			warnings: [],
 		};
 	}
 
 	const placeholders: string[] = [];
 	collectPlaceholders( parsed, '', placeholders );
 
+	// The field rule checks assume the schema's shape, so they only run once it passes.
 	if ( validateManifest( parsed ) ) {
-		return { file, parseError: null, errors: [], parsed, placeholders };
+		const { warnings, errors: deprecationErrors } = constantNameDeprecation( parsed );
+		return {
+			file,
+			parseError: null,
+			errors: [ ...fieldRuleIssues( parsed ), ...deprecationErrors ],
+			parsed,
+			placeholders,
+			warnings,
+		};
 	}
-
-	// De-duplicate: the `enum`/`if` combo can surface the same underlying issue twice.
-	const errors = [ ...new Set( ( validateManifest.errors ?? [] ).map( describeError ) ) ];
-	return { file, parseError: null, errors, parsed, placeholders };
+	return {
+		file,
+		parseError: null,
+		errors: describeErrors( validateManifest.errors ?? [] ),
+		parsed,
+		placeholders,
+		warnings: [],
+	};
 }

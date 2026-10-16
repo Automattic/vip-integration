@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+import { formatHumanReport } from '../src/lib/validate/report';
 import { looksLikeIntegration, validateIntegration } from '../src/lib/validate/validate';
 
 import type { CheckStatus } from '../src/lib/validate/validate';
@@ -9,7 +10,7 @@ import type { CheckStatus } from '../src/lib/validate/validate';
 /** A complete handoff manifest matching the conformant fixture's names. */
 function conformantManifest(): string {
 	return [
-		'manifest_version: 1',
+		'manifest_version: 2',
 		'manifest_kind: vip-integration-handoff',
 		'integration:',
 		'  slug: acme-widget',
@@ -28,7 +29,6 @@ function conformantManifest(): string {
 		"    php_namespace: 'Acme\\Widget'",
 		'    scope: site',
 		'runtime_config:',
-		'  constant_name: VIP_ACME_WIDGET_CONFIG',
 		'  fields:',
 		'    - key: api_base_url',
 		'      label: API base URL',
@@ -42,11 +42,11 @@ function conformantManifest(): string {
 		'        - export',
 		'        - import',
 		'telemetry:',
-		'  prefix: acme_widget_',
+		'  prefix: acmewidget_',
 		'  default_properties:',
 		'    - plugin_version',
 		'  events:',
-		'    - name: acme_widget_sync_started',
+		'    - name: acmewidget_sync_started',
 		'      type: tracks',
 		'      trigger: A sync starts.',
 		'      properties:',
@@ -409,17 +409,112 @@ describe( 'validateIntegration', () => {
 		const root = join( dir, 'manifest-incomplete' );
 		mkdirSync( root, { recursive: true } );
 		scaffoldConformant( root );
-		// Drop runtime_config.constant_name — VIP needs it to define the config.
+		// Drop runtime_config.fields — VIP needs it to render and store the config.
 		writeFileSync(
 			join( root, 'vip-manifest.yaml' ),
-			conformantManifest().replace( '  constant_name: VIP_ACME_WIDGET_CONFIG\n', '' )
+			conformantManifest().replace( /\n {2}fields:[\s\S]*?(?=\ntelemetry:)/, '\n' )
 		);
 
 		const rule3 = validateIntegration( root ).results.find(
 			result => result.id === 'handoff-manifest'
 		);
 		expect( rule3?.status ).toBe( 'fail' );
-		expect( rule3?.details?.join( '\n' ) ).toMatch( /constant_name/ );
+		expect( rule3?.details?.join( '\n' ) ).toMatch( /runtime_config/ );
+	} );
+
+	it( 'fails rule 3 when a v2 manifest declares runtime_config.constant_name', () => {
+		const root = join( dir, 'manifest-constant-v2' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		// The constant is derived from the slug in version 2; declaring it needs a
+		// deprecated version 1 manifest.
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest().replace(
+				'runtime_config:\n',
+				'runtime_config:\n  constant_name: VIP_ACME_WIDGET_CONFIG\n'
+			)
+		);
+
+		const rule3 = validateIntegration( root ).results.find(
+			result => result.id === 'handoff-manifest'
+		);
+		expect( rule3?.status ).toBe( 'fail' );
+		expect( rule3?.details?.join( '\n' ) ).toMatch( /constant_name.*version 1/i );
+	} );
+
+	it.each( [ false, true ] )( 'warns for a v1 constant_name with config mismatch: %s', mismatch => {
+		const root = join( dir, `manifest-deprecated-constant-${ mismatch }` );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		if ( mismatch ) {
+			writeFileSync(
+				join( root, 'inc', 'class-contract.php' ),
+				"<?php\nfinal class Contract { public const REQUIRED_FIELDS = [ 'webhook_secret' ]; }\n"
+			);
+		}
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest()
+				.replace( 'manifest_version: 2', 'manifest_version: 1' )
+				.replace(
+					'runtime_config:\n',
+					'runtime_config:\n  constant_name: VIP_ACME_WIDGET_CONFIG\n'
+				)
+		);
+
+		const report = validateIntegration( root );
+		const rule3 = report.results.find( result => result.id === 'handoff-manifest' );
+		expect( rule3?.status ).toBe( 'warn' );
+		expect( rule3?.details?.join( '\n' ) ).toMatch(
+			/deprecated.*derived.*VIP_ACME_WIDGET_CONFIG/s
+		);
+		expect( /webhook_secret.*not declared/.test( rule3?.details?.join( '\n' ) ?? '' ) ).toBe(
+			mismatch
+		);
+		expect( formatHumanReport( report ) ).toMatch( /deprecated.*derived.*VIP_ACME_WIDGET_CONFIG/s );
+		// The deprecation window accepts it: conformance is not broken.
+		expect( report.conformant ).toBe( true );
+	} );
+
+	it( 'fails rule 3 when a v1 constant_name differs from the derived name', () => {
+		const root = join( dir, 'manifest-wrong-constant' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		// A legacy name that does not follow the slug: the platform defines
+		// VIP_ACME_WIDGET_CONFIG regardless, so the plugin would read nothing.
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest()
+				.replace( 'manifest_version: 2', 'manifest_version: 1' )
+				.replace( 'runtime_config:\n', 'runtime_config:\n  constant_name: VIP_ACME_CONFIG\n' )
+		);
+
+		const rule3 = validateIntegration( root ).results.find(
+			result => result.id === 'handoff-manifest'
+		);
+		expect( rule3?.status ).toBe( 'fail' );
+		expect( rule3?.details?.join( '\n' ) ).toMatch(
+			/"VIP_ACME_CONFIG" but the constant is derived from the slug as "VIP_ACME_WIDGET_CONFIG"/
+		);
+	} );
+
+	it( 'fails rule 3 when a constant_name does not match VIP_*_CONFIG at all', () => {
+		const root = join( dir, 'manifest-bad-constant' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest()
+				.replace( 'manifest_version: 2', 'manifest_version: 1' )
+				.replace( 'runtime_config:\n', 'runtime_config:\n  constant_name: acme_widget\n' )
+		);
+
+		const rule3 = validateIntegration( root ).results.find(
+			result => result.id === 'handoff-manifest'
+		);
+		expect( rule3?.status ).toBe( 'fail' );
+		expect( rule3?.details?.join( '\n' ) ).toMatch( /constant_name is malformed/ );
 	} );
 
 	it( 'fails rule 3 when an enum config field declares no values', () => {
@@ -438,6 +533,27 @@ describe( 'validateIntegration', () => {
 		expect( rule3?.details?.join( '\n' ) ).toMatch( /values/ );
 	} );
 
+	it( "fails rule 3 when a config field default breaks the field's own rules", () => {
+		const root = join( dir, 'manifest-field-rules' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest().replace(
+				'      type: url\n',
+				'      type: url\n      default: ftp://acme.example\n'
+			)
+		);
+
+		const rule3 = validateIntegration( root ).results.find(
+			result => result.id === 'handoff-manifest'
+		);
+		expect( rule3?.status ).toBe( 'fail' );
+		expect( rule3?.details ).toEqual( [
+			'runtime_config.fields.0.default must be an http(s) URL.',
+		] );
+	} );
+
 	it( 'fails rule 3 when a manifest key is misspelled (unknown field)', () => {
 		const root = join( dir, 'manifest-typo' );
 		mkdirSync( root, { recursive: true } );
@@ -454,21 +570,167 @@ describe( 'validateIntegration', () => {
 		expect( rule3?.details?.join( '\n' ) ).toMatch( /unknown field "entryfile"/ );
 	} );
 
-	it( 'fails rule 3 when constant_name does not match VIP_*_CONFIG', () => {
-		const root = join( dir, 'manifest-bad-constant' );
+	it( 'fails rule 4 when the plugin reads a constant other than the slug-derived one', () => {
+		const root = join( dir, 'wrong-plugin-constant' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		// The plugin follows the old convention of declaring its own name instead
+		// of the slug-derived VIP_ACME_WIDGET_CONFIG the platform defines.
+		writeFileSync(
+			join( root, 'inc', 'class-config.php' ),
+			"<?php\nfinal class Config {\n\tpublic const CONSTANT_NAME = 'VIP_ACME_CONFIG';\n}\n"
+		);
+
+		const rule4 = validateIntegration( root ).results.find(
+			result => result.id === 'config-constant-documented'
+		);
+		expect( rule4?.status ).toBe( 'fail' );
+		expect( rule4?.message ).toMatch( /derives the config constant VIP_ACME_WIDGET_CONFIG/ );
+	} );
+
+	it.each( [
+		[ 'line', "// Previously: CONSTANT_NAME = 'VIP_ACME_CONFIG';" ],
+		[ 'block', "/* Previously: CONSTANT_NAME = 'VIP_ACME_CONFIG'; */" ],
+		[ 'hash', "# Previously: CONSTANT_NAME = 'VIP_ACME_CONFIG';" ],
+	] )( 'ignores %s migration comments when detecting the config constant', ( kind, comment ) => {
+		const root = join( dir, `migration-comment-${ kind }` );
 		mkdirSync( root, { recursive: true } );
 		scaffoldConformant( root );
 		writeFileSync(
-			join( root, 'vip-manifest.yaml' ),
-			conformantManifest().replace( 'VIP_ACME_WIDGET_CONFIG', 'ACME_WIDGET' )
+			join( root, 'inc', 'class-config.php' ),
+			`<?php\nfinal class Config {\n${ comment }\npublic const CONSTANT_NAME = 'VIP_ACME_WIDGET_CONFIG';\n}\n`
 		);
 
-		const rule3 = validateIntegration( root ).results.find(
-			result => result.id === 'handoff-manifest'
+		const report = validateIntegration( root );
+		expect( report.configChecksSkipped ).toBe( false );
+		expect( report.results.find( result => result.id === 'config-constant-documented' ) ).toEqual(
+			expect.objectContaining( {
+				status: 'pass',
+				message: 'Config constant VIP_ACME_WIDGET_CONFIG is referenced in code and documented.',
+			} )
 		);
-		expect( rule3?.status ).toBe( 'fail' );
-		expect( rule3?.details?.join( '\n' ) ).toMatch( /constant_name is malformed/ );
 	} );
+
+	it( 'ignores comments when detecting a direct config constant reference', () => {
+		const root = join( dir, 'direct-config-reference' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'inc', 'class-config.php' ),
+			[
+				'<?php',
+				'// Previously VIP_ACME_CONFIG',
+				'/* Previously VIP_OTHER_CONFIG */',
+				'# Previously VIP_LEGACY_CONFIG',
+				"$config = defined( 'VIP_ACME_WIDGET_CONFIG' ) ? VIP_ACME_WIDGET_CONFIG : [];",
+			].join( '\n' )
+		);
+
+		const report = validateIntegration( root );
+		expect( report.configChecksSkipped ).toBe( false );
+		expect(
+			report.results.find( result => result.id === 'config-constant-documented' )?.status
+		).toBe( 'pass' );
+	} );
+
+	it.each( [ '//', '#' ] )(
+		'preserves declarations after a %s line comment containing a block opener',
+		marker => {
+			const root = join( dir, `nested-comment-${ marker === '//' ? 'slash' : 'hash' }` );
+			mkdirSync( root, { recursive: true } );
+			scaffoldConformant( root );
+			writeFileSync(
+				join( root, 'inc', 'class-config.php' ),
+				[
+					'<?php',
+					'final class Config {',
+					`${ marker } Requests under /api/* use this config.`,
+					"public const CONSTANT_NAME = 'VIP_ACME_CONFIG';",
+					'/** Method docs */',
+					'public function is_available(): bool { return defined( self::CONSTANT_NAME ); }',
+					'}',
+				].join( '\n' )
+			);
+
+			const report = validateIntegration( root );
+			expect( report.configChecksSkipped ).toBe( false );
+			expect( report.results.find( result => result.id === 'config-constant-documented' ) ).toEqual(
+				expect.objectContaining( {
+					status: 'fail',
+					message: expect.stringContaining(
+						'but the plugin references VIP_ACME_CONFIG'
+					) as jest.AsymmetricMatcher,
+				} )
+			);
+		}
+	);
+
+	it.each( [
+		[ 'single-quoted URL', "'//cdn.acme.example'" ],
+		[ 'double-quoted URL', '"//cdn.acme.example"' ],
+		[ 'block delimiters', "'/* asset */'" ],
+		[ 'hash delimiter', "'asset # fragment'" ],
+		[ 'escaped single quote', String.raw`'asset\' // /* # value'` ],
+		[ 'escaped double quote', String.raw`"asset\" // /* # value"` ],
+		[ 'escaped backslash', String.raw`'asset\\'` ],
+	] )( 'preserves a config reference after a %s string', ( kind, literal ) => {
+		const root = join( dir, `quoted-comment-${ kind.replaceAll( ' ', '-' ) }` );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		rmSync( join( root, 'docs', 'integration.md' ) );
+		writeFileSync(
+			join( root, 'inc', 'class-config.php' ),
+			[
+				'<?php',
+				`$config = array_merge( [ 'asset_url' => ${ literal } ], VIP_ACME_WIDGET_CONFIG );`,
+				"/* CONSTANT_NAME = 'VIP_LEGACY_CONFIG'; */",
+				"// CONSTANT_NAME = 'VIP_OTHER_CONFIG';",
+			].join( '\n' )
+		);
+
+		const report = validateIntegration( root );
+		expect( report.configChecksSkipped ).toBe( false );
+		expect( report.results.find( result => result.id === 'config-constant-documented' ) ).toEqual(
+			expect.objectContaining( {
+				status: 'fail',
+				message:
+					'Config constant VIP_ACME_WIDGET_CONFIG is used in code but not documented in README/docs.',
+			} )
+		);
+	} );
+
+	it.each( [ 'removed', 'comments-only' ] )(
+		'skips config checks and warns when the config reference is %s despite a manifest slug',
+		scenario => {
+			const root = join( dir, `undetected-config-${ scenario }` );
+			mkdirSync( root, { recursive: true } );
+			scaffoldConformant( root );
+			const configFile = join( root, 'inc', 'class-config.php' );
+			if ( scenario === 'removed' ) {
+				rmSync( configFile );
+			} else {
+				writeFileSync(
+					configFile,
+					[
+						'<?php',
+						"// CONSTANT_NAME = 'VIP_ACME_WIDGET_CONFIG';",
+						'/* VIP_ACME_WIDGET_CONFIG */',
+						'# VIP_ACME_WIDGET_CONFIG',
+					].join( '\n' )
+				);
+			}
+
+			const report = validateIntegration( root );
+			expect( report.configChecksSkipped ).toBe( true );
+			for ( const result of report.results.filter( check => [ 4, 5, 6 ].includes( check.rule ) ) ) {
+				expect( result.status ).toBe( 'not_applicable' );
+				expect( result.message ).toContain( 'No runtime config constant detected' );
+			}
+			expect( formatHumanReport( report ) ).toContain(
+				'Config checks (rules 4-6) did NOT run — no runtime config constant was detected.'
+			);
+		}
+	);
 
 	it( 'rejects a YAML alias bomb manifest fast instead of hanging (rule 3)', () => {
 		const root = join( dir, 'manifest-alias-bomb' );
@@ -558,7 +820,23 @@ describe( 'validateIntegration', () => {
 		scaffoldConformant( root );
 		writeFileSync(
 			join( root, 'vip-manifest.yaml' ),
-			conformantManifest().replace( 'prefix: acme_widget_', 'prefix: acme_widget' )
+			conformantManifest().replace( 'prefix: acmewidget_', 'prefix: acmewidget' )
+		);
+
+		const rule3 = validateIntegration( root ).results.find(
+			result => result.id === 'handoff-manifest'
+		);
+		expect( rule3?.status ).toBe( 'fail' );
+		expect( rule3?.details?.join( '\n' ) ).toMatch( /prefix is malformed/ );
+	} );
+
+	it( 'fails rule 3 when the telemetry prefix is more than one word', () => {
+		const root = join( dir, 'manifest-multi-word-telemetry' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest().replace( 'prefix: acmewidget_', 'prefix: acme_widget_' )
 		);
 
 		const rule3 = validateIntegration( root ).results.find(
@@ -575,7 +853,7 @@ describe( 'validateIntegration', () => {
 		writeFileSync(
 			join( root, 'vip-manifest.yaml' ),
 			conformantManifest().replace(
-				'telemetry:\n  prefix: acme_widget_\n  default_properties:\n    - plugin_version\n  events:\n    - name: acme_widget_sync_started\n      type: tracks\n      trigger: A sync starts.\n      properties:\n        - trigger\n',
+				'telemetry:\n  prefix: acmewidget_\n  default_properties:\n    - plugin_version\n  events:\n    - name: acmewidget_sync_started\n      type: tracks\n      trigger: A sync starts.\n      properties:\n        - trigger\n',
 				''
 			)
 		);

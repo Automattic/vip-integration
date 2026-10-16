@@ -35,6 +35,10 @@ Interactive — it asks for your **vendor name** and **integration name**, alway
 vip-integration init --vendor "WordPress" --name "Content Sync"
 ```
 
+For this example, `init` rewrites the Starter Kit's `exampleintegration_`
+telemetry prefix to `contentsync_`; other snake-case code prefixes remain
+`content_sync_`.
+
 | Flag                | Description                                          |
 | ------------------- | ---------------------------------------------------- |
 | `--vendor <vendor>` | Vendor name, e.g. `"My Vendor"`.                     |
@@ -61,6 +65,8 @@ vip-integration validate --format json # machine-readable output for CI
 ```
 
 The checker runs nine static conformance rules and prints a per-rule report. It exits `1` when the integration is **not conformant** (any rule failed), so it gates CI. Warnings do not break conformance. Two items — the plugin/platform config-schema match and the security review — are surfaced as _human review required_ rather than automated pass/fail, because they cannot be checked statically.
+
+Point your editor at the generated [manifest JSON Schema](docs/vip-manifest.schema.json) for the supported fields and validation rules in `vip-manifest.yaml`. Run `vip-integration validate` to check the manifest, including constraints an editor's schema validation cannot check; see the [conformance checker architecture](docs/architecture.md#the-conformance-checker-libvalidate).
 
 ## Documentation
 

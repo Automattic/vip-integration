@@ -44,6 +44,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "schema": "pnpm build && node ./scripts/write-schema.mjs",
     "test": "jest",
     "release:prepare": "node ./scripts/prepare-release.mjs",
     "prepublishOnly": "pnpm run clean && pnpm run build"
