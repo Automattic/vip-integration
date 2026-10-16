@@ -100,6 +100,10 @@ const STRING_RULES = {
 } as const;
 
 const SLUG_PATTERN = '^[a-z0-9]+(-[a-z0-9]+)*$';
+// Kebab-case slug length cap, shared with the scaffolder so `vip-integration
+// init` rejects up front the names whose derived slug the manifest schema
+// would reject later. Matches integration_definition.slug on the platform side.
+export const SLUG_MAX_LENGTH = 30;
 const KEY_PATTERN = '^[a-z0-9]+(_[a-z0-9]+)*$';
 // snake_case identifier used for telemetry event and property names.
 const SNAKE_PATTERN = '^[a-z][a-z0-9_]*$';
@@ -155,7 +159,7 @@ export const MANIFEST_SCHEMA = {
 					type: 'string',
 					pattern: SLUG_PATTERN,
 					minLength: 3,
-					maxLength: 30,
+					maxLength: SLUG_MAX_LENGTH,
 					description: 'Stable kebab-case identifier, unique across the Integration Center.',
 				},
 				display_name: {

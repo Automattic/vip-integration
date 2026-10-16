@@ -21,7 +21,7 @@ import {
 import { join } from 'node:path';
 
 import { MANIFEST_FILENAMES } from '../validate/manifest';
-import { MANIFEST_PLACEHOLDER } from '../validate/manifest.schema';
+import { MANIFEST_PLACEHOLDER, SLUG_MAX_LENGTH } from '../validate/manifest.schema';
 
 /** Everything from this heading onward in a file is left un-rewritten: it is a
  * token table that must keep the example prefix so its mapping stays readable. */
@@ -94,6 +94,15 @@ export function derivePrefixSet( vendor: string, name: string ): PrefixSet {
 
 	const nameKebab = kebabCase( name );
 	const nameSnake = nameKebab.replace( /-/g, '_' );
+
+	// The manifest schema caps the integration slug at 30 chars
+	// (integration_definition.slug); reject the name up front rather than
+	// laying down a skeleton whose manifest fails validation.
+	if ( nameKebab.length > SLUG_MAX_LENGTH ) {
+		throw new Error(
+			`Integration name is too long: the derived slug "${ nameKebab }" is ${ nameKebab.length } characters (max ${ SLUG_MAX_LENGTH }). Shorten the integration name so its kebab-case slug fits within ${ SLUG_MAX_LENGTH } characters.`
+		);
+	}
 
 	return {
 		vendorPascal,
