@@ -16,7 +16,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join } from 'node:path';
 
 import { MANIFEST_FILENAMES, inspectManifest } from './manifest';
-import { MANIFEST_PLACEHOLDER } from './manifest.schema';
+import { derivedConfigConstant, MANIFEST_PLACEHOLDER } from './manifest.schema';
 
 import type { ManifestInspection } from './manifest';
 
@@ -77,6 +77,13 @@ interface Context {
 	workflowsText: string;
 	/** The runtime config constant referenced by the integration, if any. */
 	configConstant: string | null;
+	/**
+	 * The constant the platform derives from the manifest slug
+	 * (`VIP_<SLUG>_CONFIG`), when a manifest with a slug is present.
+	 */
+	manifestConstant: string | null;
+	/** The constant the plugin itself references, detected from PHP source. */
+	detectedConstant: string | null;
 	/** Root-level plugin entry file (with a "Plugin Name:" header), if any. */
 	entryFile: string | null;
 	/** Result of reading and validating the handoff manifest at the root. */
@@ -91,6 +98,10 @@ function readFileSafe( filePath: string ): string {
 	} catch {
 		return '';
 	}
+}
+
+function isRecord( value: unknown ): value is Record< string, unknown > {
+	return typeof value === 'object' && value !== null && ! Array.isArray( value );
 }
 
 function parseComposer( root: string ): ComposerJson | null {
@@ -221,6 +232,18 @@ function buildContext( root: string ): Context {
 	const composer = parseComposer( root );
 	const phpFiles = collectFiles( root, [ '.php' ] );
 	const phpSource = phpFiles.map( readFileSafe ).join( '\n\n' );
+	const manifest = inspectManifest( root );
+	const detectedConstant = detectConfigConstant( phpSource );
+
+	// When the manifest names the integration, the platform defines
+	// VIP_<SLUG>_CONFIG for it regardless of what the plugin declares, so the
+	// config rules (4-6) judge the plugin against that derived constant. Falls
+	// back to pure detection when there is no manifest with a slug.
+	const slug =
+		manifest.parsed && isRecord( manifest.parsed.integration )
+			? manifest.parsed.integration.slug
+			: undefined;
+	const derived = typeof slug === 'string' ? derivedConfigConstant( slug ) : null;
 
 	return {
 		root,
@@ -230,9 +253,11 @@ function buildContext( root: string ): Context {
 		docsText: collectDocsText( root ),
 		phpSource,
 		workflowsText: collectWorkflowsText( root ),
-		configConstant: detectConfigConstant( phpSource ),
+		configConstant: derived ?? detectedConstant,
+		manifestConstant: derived,
+		detectedConstant,
 		entryFile: detectEntryFile( root ),
-		manifest: inspectManifest( root ),
+		manifest,
 	};
 }
 
@@ -671,6 +696,15 @@ function checkHandoffManifest( ctx: Context ): CheckResult {
 		};
 	}
 
+	if ( manifest.warnings.length > 0 ) {
+		return {
+			...base,
+			status: 'warn',
+			message: `${ manifest.file } is schema-valid, but uses a deprecated field — see the following.`,
+			details: manifest.warnings,
+		};
+	}
+
 	return {
 		...base,
 		status: 'pass',
@@ -689,6 +723,19 @@ function checkConfigConstantDocumented( ctx: Context ): CheckResult {
 	};
 	if ( ! ctx.configConstant ) {
 		return { ...base, status: 'not_applicable', message: CONFIG_DETECTION_NOTE };
+	}
+	// The platform defines the slug-derived constant, so a plugin that references
+	// a different VIP_*_CONFIG would read a constant that is never defined.
+	if (
+		ctx.manifestConstant &&
+		ctx.detectedConstant &&
+		ctx.detectedConstant !== ctx.manifestConstant
+	) {
+		return {
+			...base,
+			status: 'fail',
+			message: `The manifest slug derives the config constant ${ ctx.manifestConstant }, but the plugin references ${ ctx.detectedConstant } — the platform only defines the derived constant.`,
+		};
 	}
 	if ( ctx.docsText.includes( ctx.configConstant ) ) {
 		return {
