@@ -9,7 +9,7 @@ import type { CheckStatus } from '../src/lib/validate/validate';
 /** A complete handoff manifest matching the conformant fixture's names. */
 function conformantManifest(): string {
 	return [
-		'manifest_version: 1',
+		'manifest_version: 2',
 		'manifest_kind: vip-integration-handoff',
 		'integration:',
 		'  slug: acme-widget',
@@ -28,7 +28,6 @@ function conformantManifest(): string {
 		"    php_namespace: 'Acme\\Widget'",
 		'    scope: site',
 		'runtime_config:',
-		'  constant_name: VIP_ACME_WIDGET_CONFIG',
 		'  fields:',
 		'    - key: api_base_url',
 		'      label: API base URL',
@@ -409,17 +408,102 @@ describe( 'validateIntegration', () => {
 		const root = join( dir, 'manifest-incomplete' );
 		mkdirSync( root, { recursive: true } );
 		scaffoldConformant( root );
-		// Drop runtime_config.constant_name — VIP needs it to define the config.
+		// Drop runtime_config.fields — VIP needs it to render and store the config.
 		writeFileSync(
 			join( root, 'vip-manifest.yaml' ),
-			conformantManifest().replace( '  constant_name: VIP_ACME_WIDGET_CONFIG\n', '' )
+			conformantManifest().replace( /\n {2}fields:[\s\S]*?(?=\ntelemetry:)/, '\n' )
 		);
 
 		const rule3 = validateIntegration( root ).results.find(
 			result => result.id === 'handoff-manifest'
 		);
 		expect( rule3?.status ).toBe( 'fail' );
-		expect( rule3?.details?.join( '\n' ) ).toMatch( /constant_name/ );
+		expect( rule3?.details?.join( '\n' ) ).toMatch( /runtime_config/ );
+	} );
+
+	it( 'fails rule 3 when a v2 manifest declares runtime_config.constant_name', () => {
+		const root = join( dir, 'manifest-constant-v2' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		// The constant is derived from the slug in version 2; declaring it needs a
+		// deprecated version 1 manifest.
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest().replace(
+				'runtime_config:\n',
+				'runtime_config:\n  constant_name: VIP_ACME_WIDGET_CONFIG\n'
+			)
+		);
+
+		const rule3 = validateIntegration( root ).results.find(
+			result => result.id === 'handoff-manifest'
+		);
+		expect( rule3?.status ).toBe( 'fail' );
+		expect( rule3?.details?.join( '\n' ) ).toMatch( /constant_name.*version 1/i );
+	} );
+
+	it( 'warns (does not fail) when a v1 constant_name equals the derived name', () => {
+		const root = join( dir, 'manifest-deprecated-constant' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest()
+				.replace( 'manifest_version: 2', 'manifest_version: 1' )
+				.replace(
+					'runtime_config:\n',
+					'runtime_config:\n  constant_name: VIP_ACME_WIDGET_CONFIG\n'
+				)
+		);
+
+		const report = validateIntegration( root );
+		const rule3 = report.results.find( result => result.id === 'handoff-manifest' );
+		expect( rule3?.status ).toBe( 'warn' );
+		expect( rule3?.details?.join( '\n' ) ).toMatch(
+			/deprecated.*derived.*VIP_ACME_WIDGET_CONFIG/s
+		);
+		// The deprecation window accepts it: conformance is not broken.
+		expect( report.conformant ).toBe( true );
+	} );
+
+	it( 'fails rule 3 when a v1 constant_name differs from the derived name', () => {
+		const root = join( dir, 'manifest-wrong-constant' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		// A legacy name that does not follow the slug: the platform defines
+		// VIP_ACME_WIDGET_CONFIG regardless, so the plugin would read nothing.
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest()
+				.replace( 'manifest_version: 2', 'manifest_version: 1' )
+				.replace( 'runtime_config:\n', 'runtime_config:\n  constant_name: VIP_ACME_CONFIG\n' )
+		);
+
+		const rule3 = validateIntegration( root ).results.find(
+			result => result.id === 'handoff-manifest'
+		);
+		expect( rule3?.status ).toBe( 'fail' );
+		expect( rule3?.details?.join( '\n' ) ).toMatch(
+			/"VIP_ACME_CONFIG" but the constant is derived from the slug as "VIP_ACME_WIDGET_CONFIG"/
+		);
+	} );
+
+	it( 'fails rule 3 when a constant_name does not match VIP_*_CONFIG at all', () => {
+		const root = join( dir, 'manifest-bad-constant' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'vip-manifest.yaml' ),
+			conformantManifest()
+				.replace( 'manifest_version: 2', 'manifest_version: 1' )
+				.replace( 'runtime_config:\n', 'runtime_config:\n  constant_name: acme_widget\n' )
+		);
+
+		const rule3 = validateIntegration( root ).results.find(
+			result => result.id === 'handoff-manifest'
+		);
+		expect( rule3?.status ).toBe( 'fail' );
+		expect( rule3?.details?.join( '\n' ) ).toMatch( /constant_name is malformed/ );
 	} );
 
 	it( 'fails rule 3 when an enum config field declares no values', () => {
@@ -475,20 +559,22 @@ describe( 'validateIntegration', () => {
 		expect( rule3?.details?.join( '\n' ) ).toMatch( /unknown field "entryfile"/ );
 	} );
 
-	it( 'fails rule 3 when constant_name does not match VIP_*_CONFIG', () => {
-		const root = join( dir, 'manifest-bad-constant' );
+	it( 'fails rule 4 when the plugin reads a constant other than the slug-derived one', () => {
+		const root = join( dir, 'wrong-plugin-constant' );
 		mkdirSync( root, { recursive: true } );
 		scaffoldConformant( root );
+		// The plugin follows the old convention of declaring its own name instead
+		// of the slug-derived VIP_ACME_WIDGET_CONFIG the platform defines.
 		writeFileSync(
-			join( root, 'vip-manifest.yaml' ),
-			conformantManifest().replace( 'VIP_ACME_WIDGET_CONFIG', 'ACME_WIDGET' )
+			join( root, 'inc', 'class-config.php' ),
+			"<?php\nfinal class Config {\n\tpublic const CONSTANT_NAME = 'VIP_ACME_CONFIG';\n}\n"
 		);
 
-		const rule3 = validateIntegration( root ).results.find(
-			result => result.id === 'handoff-manifest'
+		const rule4 = validateIntegration( root ).results.find(
+			result => result.id === 'config-constant-documented'
 		);
-		expect( rule3?.status ).toBe( 'fail' );
-		expect( rule3?.details?.join( '\n' ) ).toMatch( /constant_name is malformed/ );
+		expect( rule4?.status ).toBe( 'fail' );
+		expect( rule4?.message ).toMatch( /derives the config constant VIP_ACME_WIDGET_CONFIG/ );
 	} );
 
 	it( 'rejects a YAML alias bomb manifest fast instead of hanging (rule 3)', () => {

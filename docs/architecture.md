@@ -36,13 +36,15 @@ Checks if the integration meets the wpvip guidelines. All checks are **static** 
 
 One rule validates the **handoff manifest** (`vip-manifest.yaml`) — the single file a partner fills in so VIP can register and load the integration from the manifest alone. `manifest.ts` parses it and validates its shape against [`manifest.schema.ts`](../src/lib/validate/manifest.schema.ts), compiled with Ajv. That source owns the supported fields, validation keys, and type applicability; its generated [JSON Schema](vip-manifest.schema.json) exposes the same contract to editors. See [schema regeneration](testing.md#the-manifest-json-schema) when changing it.
 
+The config constant is **not** a manifest field: the platform derives it from the slug as `VIP_<SLUG>_CONFIG` (slug upper-cased, `-` replaced by `_`), e.g. `content-sync` → `VIP_CONTENT_SYNC_CONFIG`. Manifest version 2 is the current format; version 1 is deprecated because it declared the constant via `runtime_config.constant_name`. During the deprecation window a version 1 manifest may still declare it: a name equal to the derived one is accepted with a warning, and any other name fails, because the platform defines the derived constant regardless of what the manifest says.
+
 After the schema passes, [`manifest.fields.ts`](../src/lib/validate/manifest.fields.ts) checks constraints that require interpreting a field's rules and values. These semantic checks fail conformance just like schema errors; editor validation alone does not replace them. Neither layer verifies external facts such as whether a URL resolves or a secret is real.
 
 Beyond the schema and the field checks, the same rule adds two more. First, it **fails** while any field still holds the `MANIFEST_PLACEHOLDER` sentinel that `init` leaves in the partner-only fields (contact, docs URLs), so a partner cannot submit a half-filled scaffold — this is the only one of the two that blocks conformance. Second, it cross-checks the config keys the plugin declares (`Config::REQUIRED_FIELDS` / `SENSITIVE_FIELDS`) against the manifest's `runtime_config.fields` and **warns** (does not fail) when a field is missing from or mis-typed in the manifest. That cross-check is best-effort — the plugin's contract is read heuristically from the PHP source, so it can't be certain it matched the real `Config` class, which is exactly why a mismatch is a non-blocking prompt to verify rather than a hard failure. It is skipped for any plugin that declares neither array.
 
 ## The scaffolder (`lib/scaffold`)
 
-It derives a prefix set (pascal / kebab / snake / upper forms) from the vendor and integration names and rewrites the example tokens (`ExampleVendor`, `example-integration`, `VIP_EXAMPLE_INTEGRATION`, ...) across the tree. Replacement uses PHP `strtr` semantics — longest match wins and a replacement is never re-scanned.
+It derives a prefix set (pascal / kebab / snake / upper forms) from the vendor and integration names and rewrites the example tokens (`ExampleVendor`, `example-integration`, `VIP_EXAMPLE_INTEGRATION`, ...) across the tree. The config constant is derived the same way the platform derives it — `VIP_<SLUG>_CONFIG` from the slug — and `init` reports it so the partner knows which constant their plugin reads. Replacement uses PHP `strtr` semantics — longest match wins and a replacement is never re-scanned.
 
 ## Dependencies
 

@@ -109,6 +109,17 @@ const HTTP_URL_PATTERN = '^https?://.+';
 // Semantic version matching the plugin header, with optional pre-release/build.
 const SEMVER_PATTERN = '^[0-9]+\\.[0-9]+\\.[0-9]+([-+][A-Za-z0-9.-]+)?$';
 
+/**
+ * The config constant the platform defines for an integration, derived from its
+ * slug: `VIP_<SLUG>_CONFIG` with the slug upper-cased and `-` replaced by `_`
+ * (`content-sync` → `VIP_CONTENT_SYNC_CONFIG`). Not a manifest field — a
+ * declared name could drift from the slug, and the platform derives it anyway.
+ */
+export function derivedConfigConstant( slug: string ): string {
+	const safe = slug.replace( /[^A-Za-z0-9_-]/g, '' );
+	return `VIP_${ safe.replace( /-/g, '_' ).toUpperCase() }_CONFIG`;
+}
+
 export const MANIFEST_SCHEMA = {
 	$id: 'https://automattic.github.io/vip-integration/vip-manifest.schema.json',
 	title: 'WordPress VIP Integration Handoff Manifest',
@@ -127,8 +138,9 @@ export const MANIFEST_SCHEMA = {
 	],
 	properties: {
 		manifest_version: {
-			const: 1,
-			description: 'Manifest format version. Only "1" exists today.',
+			enum: [ 1, 2 ],
+			description:
+				'Manifest format version. Version 2 derives the config constant from the slug; version 1 is deprecated (it declared the constant via runtime_config.constant_name) and is accepted with a warning during the deprecation window.',
 		},
 		manifest_kind: {
 			const: MANIFEST_KIND,
@@ -231,12 +243,17 @@ export const MANIFEST_SCHEMA = {
 		runtime_config: {
 			type: 'object',
 			additionalProperties: false,
-			required: [ 'constant_name', 'fields' ],
+			required: [ 'fields' ],
+			description:
+				'Runtime configuration for the integration in the VIP Vault. The config constant is not declared here — the platform defines it from the slug as VIP_<SLUG>_CONFIG (slug upper-cased, - replaced by _), e.g. VIP_CONTENT_SYNC_CONFIG for content-sync.',
 			properties: {
+				// Deprecated: only tolerated in a version 1 manifest (see the root
+				// allOf below), and manifest.ts requires it to equal the derived name.
 				constant_name: {
 					type: 'string',
 					pattern: '^VIP_[A-Z0-9_]+_CONFIG$',
-					description: 'The VIP-defined config constant the plugin reads, e.g. VIP_ACME_CONFIG.',
+					description:
+						'Deprecated. The constant is derived from the slug (VIP_<SLUG>_CONFIG); accepted only in a version 1 manifest and only when it matches the derived name.',
 				},
 				fields: {
 					type: 'array',
@@ -300,6 +317,22 @@ export const MANIFEST_SCHEMA = {
 			},
 		},
 	},
+	// Deprecation window for version 1: a manifest may still declare
+	// runtime_config.constant_name, but only as a version 1 manifest. manifest.ts
+	// additionally requires the declared name to equal the derived one and warns.
+	allOf: [
+		{
+			$comment:
+				'"runtime_config.constant_name" is derived from the slug (VIP_<SLUG>_CONFIG); declaring it needs a deprecated version 1 manifest.',
+			if: {
+				required: [ 'runtime_config' ],
+				properties: {
+					runtime_config: { type: 'object', required: [ 'constant_name' ] },
+				},
+			},
+			then: { properties: { manifest_version: { const: 1 } } },
+		},
+	],
 	$defs: {
 		configField: {
 			type: 'object',
