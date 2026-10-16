@@ -512,18 +512,49 @@ function checkComposerTest( ctx: Context ): CheckResult {
 	};
 }
 
-/**
- * Strip PHP comments so a `REQUIRED_FIELDS` / `SENSITIVE_FIELDS` mention inside a
- * `//`, `#`, or block comment isn't read as the real config contract. Best-effort
- * and does not track string literals — fine for reading a `const` array. The `//`
- * and `#` passes require a non-`:` / whitespace lead-in so a `https://` or `#fff`
- * inside a string isn't mistaken for a comment start.
- */
 function stripPhpComments( source: string ): string {
-	return source
-		.replace( /\/\*[\s\S]*?\*\//g, '' )
-		.replace( /(^|[^:])\/\/[^\n]*/g, '$1' )
-		.replace( /(^|\s)#[^\n]*/g, '$1' );
+	const output: string[] = [];
+	let quote: string | null = null;
+	let comment: 'line' | 'block' | null = null;
+
+	for ( let i = 0; i < source.length; i++ ) {
+		const char = source[ i ];
+		const next = source[ i + 1 ];
+
+		if ( quote ) {
+			output.push( char );
+			if ( char === '\\' && next !== undefined ) {
+				output.push( next );
+				i++;
+			} else if ( char === quote ) {
+				quote = null;
+			}
+		} else if ( comment ) {
+			if ( char === '\n' || char === '\r' ) {
+				output.push( char );
+				if ( comment === 'line' ) {
+					comment = null;
+				}
+			} else if ( comment === 'block' && char === '*' && next === '/' ) {
+				comment = null;
+				i++;
+			}
+		} else if ( char === "'" || char === '"' ) {
+			quote = char;
+			output.push( char );
+		} else if ( char === '/' && ( next === '/' || next === '*' ) ) {
+			comment = next === '/' ? 'line' : 'block';
+			output.push( ' ' );
+			i++;
+		} else if ( char === '#' ) {
+			comment = 'line';
+			output.push( ' ' );
+		} else {
+			output.push( char );
+		}
+	}
+
+	return output.join( '' );
 }
 
 /**

@@ -623,6 +623,70 @@ describe( 'validateIntegration', () => {
 		).toBe( 'pass' );
 	} );
 
+	it.each( [ '//', '#' ] )(
+		'preserves declarations after a %s line comment containing a block opener',
+		marker => {
+			const root = join( dir, `nested-comment-${ marker === '//' ? 'slash' : 'hash' }` );
+			mkdirSync( root, { recursive: true } );
+			scaffoldConformant( root );
+			writeFileSync(
+				join( root, 'inc', 'class-config.php' ),
+				[
+					'<?php',
+					'final class Config {',
+					`${ marker } Requests under /api/* use this config.`,
+					"public const CONSTANT_NAME = 'VIP_ACME_CONFIG';",
+					'/** Method docs */',
+					'public function is_available(): bool { return defined( self::CONSTANT_NAME ); }',
+					'}',
+				].join( '\n' )
+			);
+
+			const report = validateIntegration( root );
+			expect( report.configChecksSkipped ).toBe( false );
+			expect( report.results.find( result => result.id === 'config-constant-documented' ) ).toEqual(
+				expect.objectContaining( {
+					status: 'fail',
+					message: expect.stringContaining( 'but the plugin references VIP_ACME_CONFIG' ),
+				} )
+			);
+		}
+	);
+
+	it.each( [
+		[ 'single-quoted URL', "'//cdn.acme.example'" ],
+		[ 'double-quoted URL', '"//cdn.acme.example"' ],
+		[ 'block delimiters', "'/* asset */'" ],
+		[ 'hash delimiter', "'asset # fragment'" ],
+		[ 'escaped single quote', String.raw`'asset\' // /* # value'` ],
+		[ 'escaped double quote', String.raw`"asset\" // /* # value"` ],
+		[ 'escaped backslash', String.raw`'asset\\'` ],
+	] )( 'preserves a config reference after a %s string', ( kind, literal ) => {
+		const root = join( dir, `quoted-comment-${ kind.replaceAll( ' ', '-' ) }` );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		rmSync( join( root, 'docs', 'integration.md' ) );
+		writeFileSync(
+			join( root, 'inc', 'class-config.php' ),
+			[
+				'<?php',
+				`$config = array_merge( [ 'asset_url' => ${ literal } ], VIP_ACME_WIDGET_CONFIG );`,
+				"/* CONSTANT_NAME = 'VIP_LEGACY_CONFIG'; */",
+				"// CONSTANT_NAME = 'VIP_OTHER_CONFIG';",
+			].join( '\n' )
+		);
+
+		const report = validateIntegration( root );
+		expect( report.configChecksSkipped ).toBe( false );
+		expect( report.results.find( result => result.id === 'config-constant-documented' ) ).toEqual(
+			expect.objectContaining( {
+				status: 'fail',
+				message:
+					'Config constant VIP_ACME_WIDGET_CONFIG is used in code but not documented in README/docs.',
+			} )
+		);
+	} );
+
 	it.each( [ 'removed', 'comments-only' ] )(
 		'skips config checks and warns when the config reference is %s despite a manifest slug',
 		scenario => {
