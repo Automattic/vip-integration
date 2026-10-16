@@ -36,7 +36,7 @@ Checks if the integration meets the wpvip guidelines. All checks are **static** 
 
 One rule validates the **handoff manifest** (`vip-manifest.yaml`) — the single file a partner fills in so VIP can register and load the integration from the manifest alone. `manifest.ts` parses it and validates its shape against [`manifest.schema.ts`](../src/lib/validate/manifest.schema.ts), compiled with Ajv. That source owns the supported fields, validation keys, and type applicability; its generated [JSON Schema](vip-manifest.schema.json) exposes the same contract to editors. See [schema regeneration](testing.md#the-manifest-json-schema) when changing it.
 
-The config constant is **not** a manifest field: the platform derives it from the slug as `VIP_<SLUG>_CONFIG` (slug upper-cased, `-` replaced by `_`), e.g. `content-sync` → `VIP_CONTENT_SYNC_CONFIG`. Manifest version 2 is the current format; version 1 is deprecated because it declared the constant via `runtime_config.constant_name`. During the deprecation window a version 1 manifest may still declare it: a name equal to the derived one is accepted with a warning, and any other name fails, because the platform defines the derived constant regardless of what the manifest says.
+The platform derives the config constant from the manifest slug; see [`derivedConfigConstant`](../src/lib/validate/manifest.schema.ts) for the derivation and the [generated schema](vip-manifest.schema.json) for manifest-version compatibility and the deprecated `runtime_config.constant_name` field. Rule 4 fails if the constant detected in PHP differs from the derived name, even when the detected name is documented. Detection ignores PHP comments while preserving quoted strings. The derived name is only an expectation, not evidence of a PHP reference: if none is detected, rules 4–6 return `not_applicable`, `configChecksSkipped` is true, and the report highlights the skipped checks.
 
 After the schema passes, [`manifest.fields.ts`](../src/lib/validate/manifest.fields.ts) checks constraints that require interpreting a field's rules and values. These semantic checks fail conformance just like schema errors; editor validation alone does not replace them. Neither layer verifies external facts such as whether a URL resolves or a secret is real.
 
@@ -44,7 +44,7 @@ Beyond the schema and the field checks, the same rule adds two more. First, it *
 
 ## The scaffolder (`lib/scaffold`)
 
-It derives a prefix set (pascal / kebab / snake / squashed / upper forms) from the vendor and integration names and rewrites the example tokens (`ExampleVendor`, `example-integration`, `VIP_EXAMPLE_INTEGRATION`, ...) across the tree. The config constant is derived the same way the platform derives it — `VIP_<SLUG>_CONFIG` from the slug — and `init` reports it so the partner knows which constant their plugin reads. Replacement uses PHP `strtr` semantics — longest match wins and a replacement is never re-scanned.
+It derives a prefix set (pascal / kebab / snake / squashed / upper forms) from the vendor and integration names and rewrites the example tokens (`ExampleVendor`, `example-integration`, `VIP_EXAMPLE_INTEGRATION`, ...) across the tree. `init` reports the slug-derived config constant described above so the partner knows which constant their plugin reads. Replacement uses PHP `strtr` semantics — longest match wins and a replacement is never re-scanned.
 
 ## Dependencies
 
