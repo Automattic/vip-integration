@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+import { formatHumanReport } from '../src/lib/validate/report';
 import { looksLikeIntegration, validateIntegration } from '../src/lib/validate/validate';
 
 import type { CheckStatus } from '../src/lib/validate/validate';
@@ -576,6 +577,84 @@ describe( 'validateIntegration', () => {
 		expect( rule4?.status ).toBe( 'fail' );
 		expect( rule4?.message ).toMatch( /derives the config constant VIP_ACME_WIDGET_CONFIG/ );
 	} );
+
+	it.each( [
+		[ 'line', "// Previously: CONSTANT_NAME = 'VIP_ACME_CONFIG';" ],
+		[ 'block', "/* Previously: CONSTANT_NAME = 'VIP_ACME_CONFIG'; */" ],
+		[ 'hash', "# Previously: CONSTANT_NAME = 'VIP_ACME_CONFIG';" ],
+	] )( 'ignores %s migration comments when detecting the config constant', ( kind, comment ) => {
+		const root = join( dir, `migration-comment-${ kind }` );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'inc', 'class-config.php' ),
+			`<?php\nfinal class Config {\n${ comment }\npublic const CONSTANT_NAME = 'VIP_ACME_WIDGET_CONFIG';\n}\n`
+		);
+
+		const report = validateIntegration( root );
+		expect( report.configChecksSkipped ).toBe( false );
+		expect( report.results.find( result => result.id === 'config-constant-documented' ) ).toEqual(
+			expect.objectContaining( {
+				status: 'pass',
+				message: 'Config constant VIP_ACME_WIDGET_CONFIG is referenced in code and documented.',
+			} )
+		);
+	} );
+
+	it( 'ignores comments when detecting a direct config constant reference', () => {
+		const root = join( dir, 'direct-config-reference' );
+		mkdirSync( root, { recursive: true } );
+		scaffoldConformant( root );
+		writeFileSync(
+			join( root, 'inc', 'class-config.php' ),
+			[
+				'<?php',
+				'// Previously VIP_ACME_CONFIG',
+				'/* Previously VIP_OTHER_CONFIG */',
+				'# Previously VIP_LEGACY_CONFIG',
+				"$config = defined( 'VIP_ACME_WIDGET_CONFIG' ) ? VIP_ACME_WIDGET_CONFIG : [];",
+			].join( '\n' )
+		);
+
+		const report = validateIntegration( root );
+		expect( report.configChecksSkipped ).toBe( false );
+		expect(
+			report.results.find( result => result.id === 'config-constant-documented' )?.status
+		).toBe( 'pass' );
+	} );
+
+	it.each( [ 'removed', 'comments-only' ] )(
+		'skips config checks and warns when the config reference is %s despite a manifest slug',
+		scenario => {
+			const root = join( dir, `undetected-config-${ scenario }` );
+			mkdirSync( root, { recursive: true } );
+			scaffoldConformant( root );
+			const configFile = join( root, 'inc', 'class-config.php' );
+			if ( scenario === 'removed' ) {
+				rmSync( configFile );
+			} else {
+				writeFileSync(
+					configFile,
+					[
+						'<?php',
+						"// CONSTANT_NAME = 'VIP_ACME_WIDGET_CONFIG';",
+						'/* VIP_ACME_WIDGET_CONFIG */',
+						'# VIP_ACME_WIDGET_CONFIG',
+					].join( '\n' )
+				);
+			}
+
+			const report = validateIntegration( root );
+			expect( report.configChecksSkipped ).toBe( true );
+			for ( const result of report.results.filter( result => [ 4, 5, 6 ].includes( result.rule ) ) ) {
+				expect( result.status ).toBe( 'not_applicable' );
+				expect( result.message ).toContain( 'No runtime config constant detected' );
+			}
+			expect( formatHumanReport( report ) ).toContain(
+				'Config checks (rules 4-6) did NOT run — no runtime config constant was detected.'
+			);
+		}
+	);
 
 	it( 'rejects a YAML alias bomb manifest fast instead of hanging (rule 3)', () => {
 		const root = join( dir, 'manifest-alias-bomb' );

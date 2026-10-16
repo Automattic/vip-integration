@@ -82,8 +82,6 @@ interface Context {
 	 * (`VIP_<SLUG>_CONFIG`), when a manifest with a slug is present.
 	 */
 	manifestConstant: string | null;
-	/** The constant the plugin itself references, detected from PHP source. */
-	detectedConstant: string | null;
 	/** Root-level plugin entry file (with a "Plugin Name:" header), if any. */
 	entryFile: string | null;
 	/** Result of reading and validating the handoff manifest at the root. */
@@ -196,15 +194,16 @@ function collectWorkflowsText( root: string ): string {
 }
 
 function detectConfigConstant( phpSource: string ): string | null {
+	const source = stripPhpComments( phpSource );
 	// Prefer the Starter Kit pattern: a Config class declaring
 	// `const CONSTANT_NAME = '<CONSTANT>'`. This catches integrations that follow
 	// the convention even if they don't use the VIP_*_CONFIG suffix.
-	const declared = /CONSTANT_NAME\s*=\s*'([A-Z_][A-Z0-9_]*)'/.exec( phpSource );
+	const declared = /CONSTANT_NAME\s*=\s*'([A-Z_][A-Z0-9_]*)'/.exec( source );
 	if ( declared ) {
 		return declared[ 1 ];
 	}
 	// Fall back to a VIP_<NAME>_CONFIG constant referenced anywhere.
-	const referenced = /\bVIP_[A-Z0-9_]+_CONFIG\b/.exec( phpSource );
+	const referenced = /\bVIP_[A-Z0-9_]+_CONFIG\b/.exec( source );
 	return referenced ? referenced[ 0 ] : null;
 }
 
@@ -235,10 +234,6 @@ function buildContext( root: string ): Context {
 	const manifest = inspectManifest( root );
 	const detectedConstant = detectConfigConstant( phpSource );
 
-	// When the manifest names the integration, the platform defines
-	// VIP_<SLUG>_CONFIG for it regardless of what the plugin declares, so the
-	// config rules (4-6) judge the plugin against that derived constant. Falls
-	// back to pure detection when there is no manifest with a slug.
 	const slug =
 		manifest.parsed && isRecord( manifest.parsed.integration )
 			? manifest.parsed.integration.slug
@@ -253,9 +248,8 @@ function buildContext( root: string ): Context {
 		docsText: collectDocsText( root ),
 		phpSource,
 		workflowsText: collectWorkflowsText( root ),
-		configConstant: derived ?? detectedConstant,
+		configConstant: detectedConstant,
 		manifestConstant: derived,
-		detectedConstant,
 		entryFile: detectEntryFile( root ),
 		manifest,
 	};
@@ -726,15 +720,11 @@ function checkConfigConstantDocumented( ctx: Context ): CheckResult {
 	}
 	// The platform defines the slug-derived constant, so a plugin that references
 	// a different VIP_*_CONFIG would read a constant that is never defined.
-	if (
-		ctx.manifestConstant &&
-		ctx.detectedConstant &&
-		ctx.detectedConstant !== ctx.manifestConstant
-	) {
+	if ( ctx.manifestConstant && ctx.configConstant !== ctx.manifestConstant ) {
 		return {
 			...base,
 			status: 'fail',
-			message: `The manifest slug derives the config constant ${ ctx.manifestConstant }, but the plugin references ${ ctx.detectedConstant } — the platform only defines the derived constant.`,
+			message: `The manifest slug derives the config constant ${ ctx.manifestConstant }, but the plugin references ${ ctx.configConstant } — the platform only defines the derived constant.`,
 		};
 	}
 	if ( ctx.docsText.includes( ctx.configConstant ) ) {
