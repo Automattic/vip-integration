@@ -143,7 +143,7 @@ export const MANIFEST_SCHEMA = {
 					type: 'string',
 					pattern: SLUG_PATTERN,
 					minLength: 3,
-					maxLength: 63,
+					maxLength: 30,
 					description: 'Stable kebab-case identifier, unique across the Integration Center.',
 				},
 				display_name: {
