@@ -207,7 +207,7 @@ describe( 'initCommand', () => {
 		expect( output ).not.toContain( 'default directory' );
 		expect( output ).toContain( 'Created ContentSync integration' );
 		expect( output ).toContain(
-			'Follow the Runtime Config section in docs/vip-integration.md to learn how to use your runtime config (VIP_CONTENT_SYNC_CONFIG) and complete the integration.'
+			'Follow the Runtime Config section in docs/vip-integration.md to learn how to use your runtime config (VIP_CONTENT_SYNC_CONFIG — derived from the slug, not declared in the manifest) and complete the integration.'
 		);
 		expect( output ).toContain(
 			'Follow docs/manifest.md to configure vip-manifest.yaml, which is required before submitting the integration.'

@@ -4,14 +4,14 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { inspectManifest } from '../src/lib/validate/manifest';
-import { manifestJsonSchema } from '../src/lib/validate/manifest.schema';
+import { derivedConfigConstant, manifestJsonSchema } from '../src/lib/validate/manifest.schema';
 
 type Field = Record< string, unknown >;
 
 /** A complete manifest whose only config fields are `fields`. */
 function manifestWith( fields: Field[] ): Record< string, unknown > {
 	return {
-		manifest_version: 1,
+		manifest_version: 2,
 		manifest_kind: 'vip-integration-handoff',
 		integration: {
 			slug: 'acme-widget',
@@ -28,7 +28,7 @@ function manifestWith( fields: Field[] ): Record< string, unknown > {
 				scope: 'site',
 			},
 		},
-		runtime_config: { constant_name: 'VIP_ACME_WIDGET_CONFIG', fields },
+		runtime_config: { fields },
 		release: {
 			plugin_version: '1.0.0',
 			version_strategy: 'latest',
@@ -465,5 +465,62 @@ describe( 'manifestJsonSchema', () => {
 			readFileSync( join( __dirname, '..', 'docs', 'vip-manifest.schema.json' ), 'utf8' )
 		);
 		expect( committed ).toEqual( manifestJsonSchema() );
+	} );
+} );
+
+describe( 'derivedConfigConstant', () => {
+	it( 'derives VIP_<SLUG>_CONFIG from the slug', () => {
+		expect( derivedConfigConstant( 'shareadraft' ) ).toBe( 'VIP_SHAREADRAFT_CONFIG' );
+		expect( derivedConfigConstant( 'content-for-agents' ) ).toBe( 'VIP_CONTENT_FOR_AGENTS_CONFIG' );
+		expect( derivedConfigConstant( 'acme-widget' ) ).toBe( 'VIP_ACME_WIDGET_CONFIG' );
+	} );
+} );
+
+describe( 'constant_name deprecation window', () => {
+	let dir: string;
+
+	beforeAll( () => {
+		dir = mkdtempSync( join( tmpdir(), 'vip-manifest-constant-' ) );
+	} );
+
+	afterAll( () => {
+		rmSync( dir, { recursive: true, force: true } );
+	} );
+
+	const FIELD: Field = { key: 'api_base_url', label: 'API base URL', type: 'url' };
+
+	function inspect( manifest: Record< string, unknown > ) {
+		writeFileSync( join( dir, 'vip-manifest.yaml' ), dump( manifest ) );
+		return inspectManifest( dir );
+	}
+
+	it( 'accepts a v1 constant_name equal to the derived name, with a warning', () => {
+		const inspection = inspect( {
+			...manifestWith( [] ),
+			manifest_version: 1,
+			runtime_config: { constant_name: 'VIP_ACME_WIDGET_CONFIG', fields: [ FIELD ] },
+		} );
+		expect( inspection.errors ).toEqual( [] );
+		expect( inspection.warnings ).toHaveLength( 1 );
+		expect( inspection.warnings[ 0 ] ).toMatch( /deprecated.*VIP_ACME_WIDGET_CONFIG/s );
+	} );
+
+	it( 'fails a v1 constant_name that differs from the derived name', () => {
+		const inspection = inspect( {
+			...manifestWith( [] ),
+			manifest_version: 1,
+			runtime_config: { constant_name: 'VIP_ACME_CONFIG', fields: [ FIELD ] },
+		} );
+		expect( inspection.errors ).toHaveLength( 1 );
+		expect( inspection.errors[ 0 ] ).toMatch( /"VIP_ACME_CONFIG".*VIP_ACME_WIDGET_CONFIG/ );
+		expect( inspection.warnings ).toEqual( [] );
+	} );
+
+	it( 'rejects a v2 manifest that still declares constant_name', () => {
+		const inspection = inspect( {
+			...manifestWith( [] ),
+			runtime_config: { constant_name: 'VIP_ACME_WIDGET_CONFIG', fields: [ FIELD ] },
+		} );
+		expect( inspection.errors.join( '\n' ) ).toMatch( /constant_name.*version 1/i );
 	} );
 } );
