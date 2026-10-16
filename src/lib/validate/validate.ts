@@ -722,6 +722,7 @@ function checkHandoffManifest( ctx: Context ): CheckResult {
 			message: `${ manifest.file } is schema-valid, but its config fields may not line up with what the plugin declares — double-check the following.`,
 			details: [
 				...configIssues,
+				...manifest.warnings,
 				"Best-effort cross-check: the plugin's config contract is read heuristically from the PHP source, so treat this as a prompt to verify — not a definitive failure.",
 			],
 		};

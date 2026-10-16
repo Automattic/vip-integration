@@ -385,27 +385,6 @@
           "$comment": "\"max_items\" only applies to type \"list\".",
           "if": { "required": [ "max_items" ] },
           "then": { "properties": { "type": { "enum": [ "list" ] } } }
-        },
-        {
-          "$comment": "\"example\" only applies to type \"string\", \"text\", \"url\", \"email\", \"number\", \"boolean\", \"secret\", \"enum\", \"list\".",
-          "if": { "required": [ "example" ] },
-          "then": {
-            "properties": {
-              "type": {
-                "enum": [
-                  "string",
-                  "text",
-                  "url",
-                  "email",
-                  "number",
-                  "boolean",
-                  "secret",
-                  "enum",
-                  "list"
-                ]
-              }
-            }
-          }
         }
       ]
     },

@@ -443,10 +443,16 @@ describe( 'validateIntegration', () => {
 		expect( rule3?.details?.join( '\n' ) ).toMatch( /constant_name.*version 1/i );
 	} );
 
-	it( 'warns (does not fail) when a v1 constant_name equals the derived name', () => {
-		const root = join( dir, 'manifest-deprecated-constant' );
+	it.each( [ false, true ] )( 'warns for a v1 constant_name with config mismatch: %s', mismatch => {
+		const root = join( dir, `manifest-deprecated-constant-${ mismatch }` );
 		mkdirSync( root, { recursive: true } );
 		scaffoldConformant( root );
+		if ( mismatch ) {
+			writeFileSync(
+				join( root, 'inc', 'class-contract.php' ),
+				"<?php\nfinal class Contract { public const REQUIRED_FIELDS = [ 'webhook_secret' ]; }\n"
+			);
+		}
 		writeFileSync(
 			join( root, 'vip-manifest.yaml' ),
 			conformantManifest()
@@ -463,6 +469,10 @@ describe( 'validateIntegration', () => {
 		expect( rule3?.details?.join( '\n' ) ).toMatch(
 			/deprecated.*derived.*VIP_ACME_WIDGET_CONFIG/s
 		);
+		if ( mismatch ) {
+			expect( rule3?.details?.join( '\n' ) ).toMatch( /webhook_secret.*not declared/ );
+		}
+		expect( formatHumanReport( report ) ).toMatch( /deprecated.*derived.*VIP_ACME_WIDGET_CONFIG/s );
 		// The deprecation window accepts it: conformance is not broken.
 		expect( report.conformant ).toBe( true );
 	} );

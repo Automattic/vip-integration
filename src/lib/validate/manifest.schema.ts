@@ -72,7 +72,6 @@ const RULE_TYPES: Record< string, readonly string[] > = {
 	format: STRING_VALUE_TYPES,
 	items: [ 'list' ],
 	max_items: [ 'list' ],
-	example: FIELD_TYPES,
 };
 
 // Rules shared by string fields and list items.
