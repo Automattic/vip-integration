@@ -469,9 +469,9 @@ describe( 'validateIntegration', () => {
 		expect( rule3?.details?.join( '\n' ) ).toMatch(
 			/deprecated.*derived.*VIP_ACME_WIDGET_CONFIG/s
 		);
-		if ( mismatch ) {
-			expect( rule3?.details?.join( '\n' ) ).toMatch( /webhook_secret.*not declared/ );
-		}
+		expect( /webhook_secret.*not declared/.test( rule3?.details?.join( '\n' ) ?? '' ) ).toBe(
+			mismatch
+		);
 		expect( formatHumanReport( report ) ).toMatch( /deprecated.*derived.*VIP_ACME_WIDGET_CONFIG/s );
 		// The deprecation window accepts it: conformance is not broken.
 		expect( report.conformant ).toBe( true );
