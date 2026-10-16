@@ -512,20 +512,26 @@ function checkComposerTest( ctx: Context ): CheckResult {
 	};
 }
 
+/**
+ * Keep comment markers inside quoted strings literal, and ignore block openers
+ * inside line comments. Separate stripping passes can otherwise erase real
+ * config declarations or references (see the comment/string regression cases
+ * in __tests__/validate.test.ts).
+ */
 function stripPhpComments( source: string ): string {
 	const output: string[] = [];
 	let quote: string | null = null;
 	let comment: 'line' | 'block' | null = null;
 
-	for ( let i = 0; i < source.length; i++ ) {
-		const char = source[ i ];
-		const next = source[ i + 1 ];
+	for ( let index = 0; index < source.length; index++ ) {
+		const char = source[ index ];
+		const next = source[ index + 1 ];
 
 		if ( quote ) {
 			output.push( char );
 			if ( char === '\\' && next !== undefined ) {
 				output.push( next );
-				i++;
+				index++;
 			} else if ( char === quote ) {
 				quote = null;
 			}
@@ -537,7 +543,7 @@ function stripPhpComments( source: string ): string {
 				}
 			} else if ( comment === 'block' && char === '*' && next === '/' ) {
 				comment = null;
-				i++;
+				index++;
 			}
 		} else if ( char === "'" || char === '"' ) {
 			quote = char;
@@ -545,7 +551,7 @@ function stripPhpComments( source: string ): string {
 		} else if ( char === '/' && ( next === '/' || next === '*' ) ) {
 			comment = next === '/' ? 'line' : 'block';
 			output.push( ' ' );
-			i++;
+			index++;
 		} else if ( char === '#' ) {
 			comment = 'line';
 			output.push( ' ' );

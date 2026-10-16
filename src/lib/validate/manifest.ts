@@ -29,7 +29,7 @@ export interface ManifestInspection {
 	file: string | null;
 	/** Set when the file exists but is not parseable / not a mapping. */
 	parseError: string | null;
-	/** Schema and field-rule violations; placeholders are reported separately. */
+	/** Schema, field-rule, and deprecation errors; placeholders are reported separately. */
 	errors: string[];
 	/** The parsed manifest, or null when it was missing / unparseable. */
 	parsed: Record< string, unknown > | null;
