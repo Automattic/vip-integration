@@ -89,8 +89,9 @@ const STRING_RULES = {
 	pattern: {
 		type: 'string',
 		minLength: 1,
+		maxLength: 200,
 		description:
-			'Regular expression (JavaScript syntax) the whole value must match. Needs an "example", so the form can show the expected format.',
+			'Regular expression (JavaScript syntax) the whole value must match. Needs an "example", so the form can show the expected format. It has to run on a linear-time engine like RE2, so no backreferences or lookarounds.',
 	},
 	format: {
 		enum: [ ...FIELD_FORMATS ],

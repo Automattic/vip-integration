@@ -89,6 +89,33 @@ function compilePattern( pattern: string ): RegExp | string {
 	}
 }
 
+/**
+ * Why a pattern can't run on a linear-time engine like RE2, or null. A partner
+ * writes the pattern and VIP runs it against customer input, so VIP has to be
+ * able to run it with RE2: a backtracking engine can hang on a crafted value
+ * (ReDoS). RE2 has no backreferences or lookarounds.
+ */
+function re2Incompatibility( pattern: string ): string | null {
+	let classDepth = 0;
+	for ( let index = 0; index < pattern.length; index++ ) {
+		const char = pattern[ index ];
+		if ( char === '\\' ) {
+			const next = pattern[ index + 1 ] ?? '';
+			if ( classDepth === 0 && ( /[1-9]/.test( next ) || next === 'k' ) ) {
+				return 'a backreference';
+			}
+			index++;
+		} else if ( char === '[' ) {
+			classDepth++;
+		} else if ( char === ']' && classDepth > 0 ) {
+			classDepth--;
+		} else if ( classDepth === 0 && /^\(\?<?[=!]/.test( pattern.slice( index ) ) ) {
+			return 'a lookahead or lookbehind';
+		}
+	}
+	return null;
+}
+
 /** Problems with the rules themselves: bounds out of order, a pattern that doesn't compile. */
 function ruleIssues( rules: ValueRules, where: string ): string[] {
 	const issues: string[] = [];
@@ -107,8 +134,13 @@ function ruleIssues( rules: ValueRules, where: string ): string[] {
 	}
 	if ( rules.pattern !== undefined ) {
 		const compiled = compilePattern( rules.pattern );
+		const unsupported = re2Incompatibility( rules.pattern );
 		if ( typeof compiled === 'string' ) {
 			issues.push( `${ where }.pattern is not a valid regular expression (${ compiled }).` );
+		} else if ( unsupported ) {
+			issues.push(
+				`${ where }.pattern uses ${ unsupported }, which a linear-time engine like RE2 can't run.`
+			);
 		}
 	}
 	return issues;

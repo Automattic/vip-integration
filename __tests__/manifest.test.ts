@@ -166,6 +166,18 @@ describe( 'manifest field rules', () => {
 			'enum default from its values',
 			{ key: 'a', label: 'A', type: 'enum', values: [ 'x', 'y' ], default: 'y' },
 		],
+		// Patterns a linear-time engine like RE2 runs.
+		...(
+			[
+				[ '(?:[a-z]+-)?[a-z]+', 'acme-prod' ],
+				[ '(ab)+', 'abab' ],
+				[ '(?<word>[a-z]+)', 'acme' ],
+				[ '[a-z]+(?:\\.[a-z]+)*', 'a.b.c' ],
+			] as const
+		 ).map( ( [ pattern, example ] ): [ string, Field ] => [
+			`pattern ${ pattern }`,
+			{ key: 'a', label: 'A', type: 'string', pattern, example },
+		] ),
 	] )( 'accepts %s', ( _name, field ) => {
 		expect( errorsFor( field ) ).toEqual( [] );
 	} );
@@ -350,6 +362,38 @@ describe( 'manifest field rules', () => {
 			'a pattern that only compiles without the v flag',
 			{ key: 'a', label: 'A', type: 'string', pattern: '[a-z0-9-]+', example: 'a' },
 			/pattern is not a valid regular expression \(inside \[\.\.\.\], escape - /,
+		],
+		// Patterns a linear-time engine like RE2 can't run.
+		...(
+			[
+				[
+					'(a)\\1',
+					/fields\.0\.pattern uses a backreference, which a linear-time engine like RE2/,
+				],
+				[ '(?<x>a)\\k<x>', /pattern uses a backreference/ ],
+				[ '(?=a)a', /pattern uses a lookahead or lookbehind/ ],
+				[ '(?<!b)a', /pattern uses a lookahead or lookbehind/ ],
+			] as const
+		 ).map( ( [ pattern, expected ] ): [ string, Field, RegExp ] => [
+			`pattern ${ pattern }`,
+			{ key: 'a', label: 'A', type: 'string', pattern, example: 'a' },
+			expected,
+		] ),
+		[
+			'a list item pattern with a lookahead',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'list',
+				items: { type: 'string', pattern: '(?=a)a' },
+				example: [ 'a' ],
+			},
+			/fields\.0\.items\.pattern uses a lookahead or lookbehind/,
+		],
+		[
+			'a pattern longer than 200 characters',
+			{ key: 'a', label: 'A', type: 'string', pattern: 'a'.repeat( 201 ), example: 'a' },
+			/fields\.0\.pattern must NOT have more than 200 characters/,
 		],
 		// Default and example values against the field's own rules.
 		[
