@@ -34,6 +34,7 @@ describe( 'derivePrefixSet', () => {
 			vendorKebab: 'acme',
 			nameKebab: 'content-sync',
 			nameSnake: 'content_sync',
+			nameSquashed: 'contentsync',
 			nameUpper: 'CONTENT_SYNC',
 			configConstant: 'VIP_CONTENT_SYNC_CONFIG',
 		} );
@@ -46,6 +47,19 @@ describe( 'derivePrefixSet', () => {
 
 	it( 'rejects names that cannot form a valid PHP namespace', () => {
 		expect( () => derivePrefixSet( 'Acme', '123 demo' ) ).toThrow( /valid PHP namespace/ );
+	} );
+
+	it( 'rejects names whose derived slug exceeds the 30-character manifest cap', () => {
+		// Exactly at the cap: still valid.
+		const atCap = derivePrefixSet( 'Acme', 'A'.repeat( 30 ) );
+		expect( atCap.nameKebab ).toBe( 'a'.repeat( 30 ) );
+		// One over the cap: the confirmed review finding's repro, a 32-char
+		// slug `init` previously wrote and reported success for.
+		expect( () => derivePrefixSet( 'Acme', 'Acme Enterprise Content Delivery' ) ).toThrow(
+			/too long|"acme-enterprise-content-delivery" is 32 characters \(max 30\)/
+		);
+		// Far over the cap.
+		expect( () => derivePrefixSet( 'Acme', 'A'.repeat( 31 ) ) ).toThrow( /max 30/ );
 	} );
 } );
 
@@ -81,6 +95,15 @@ describe( 'rewriteContents', () => {
 		expect( rewriteContents( 'example-vendor/example-integration', replacements ) ).toBe(
 			'acme/content-sync'
 		);
+	} );
+
+	it( 'squashes the telemetry prefix into a single word', () => {
+		expect(
+			rewriteContents(
+				'prefix: exampleintegration_\noption: example_integration_settings',
+				replacements
+			)
+		).toBe( 'prefix: contentsync_\noption: content_sync_settings' );
 	} );
 
 	it( 'preserves everything from the token-table marker onward', () => {

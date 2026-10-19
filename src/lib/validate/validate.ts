@@ -16,7 +16,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join } from 'node:path';
 
 import { MANIFEST_FILENAMES, inspectManifest } from './manifest';
-import { MANIFEST_PLACEHOLDER } from './manifest.schema';
+import { derivedConfigConstant, MANIFEST_PLACEHOLDER } from './manifest.schema';
 
 import type { ManifestInspection } from './manifest';
 
@@ -77,6 +77,11 @@ interface Context {
 	workflowsText: string;
 	/** The runtime config constant referenced by the integration, if any. */
 	configConstant: string | null;
+	/**
+	 * The constant the platform derives from the manifest slug
+	 * (`VIP_<SLUG>_CONFIG`), when a manifest with a slug is present.
+	 */
+	manifestConstant: string | null;
 	/** Root-level plugin entry file (with a "Plugin Name:" header), if any. */
 	entryFile: string | null;
 	/** Result of reading and validating the handoff manifest at the root. */
@@ -91,6 +96,10 @@ function readFileSafe( filePath: string ): string {
 	} catch {
 		return '';
 	}
+}
+
+function isRecord( value: unknown ): value is Record< string, unknown > {
+	return typeof value === 'object' && value !== null && ! Array.isArray( value );
 }
 
 function parseComposer( root: string ): ComposerJson | null {
@@ -185,15 +194,16 @@ function collectWorkflowsText( root: string ): string {
 }
 
 function detectConfigConstant( phpSource: string ): string | null {
+	const source = stripPhpComments( phpSource );
 	// Prefer the Starter Kit pattern: a Config class declaring
 	// `const CONSTANT_NAME = '<CONSTANT>'`. This catches integrations that follow
 	// the convention even if they don't use the VIP_*_CONFIG suffix.
-	const declared = /CONSTANT_NAME\s*=\s*'([A-Z_][A-Z0-9_]*)'/.exec( phpSource );
+	const declared = /CONSTANT_NAME\s*=\s*'([A-Z_][A-Z0-9_]*)'/.exec( source );
 	if ( declared ) {
 		return declared[ 1 ];
 	}
 	// Fall back to a VIP_<NAME>_CONFIG constant referenced anywhere.
-	const referenced = /\bVIP_[A-Z0-9_]+_CONFIG\b/.exec( phpSource );
+	const referenced = /\bVIP_[A-Z0-9_]+_CONFIG\b/.exec( source );
 	return referenced ? referenced[ 0 ] : null;
 }
 
@@ -221,6 +231,14 @@ function buildContext( root: string ): Context {
 	const composer = parseComposer( root );
 	const phpFiles = collectFiles( root, [ '.php' ] );
 	const phpSource = phpFiles.map( readFileSafe ).join( '\n\n' );
+	const manifest = inspectManifest( root );
+	const detectedConstant = detectConfigConstant( phpSource );
+
+	const slug =
+		manifest.parsed && isRecord( manifest.parsed.integration )
+			? manifest.parsed.integration.slug
+			: undefined;
+	const derived = typeof slug === 'string' ? derivedConfigConstant( slug ) : null;
 
 	return {
 		root,
@@ -230,9 +248,10 @@ function buildContext( root: string ): Context {
 		docsText: collectDocsText( root ),
 		phpSource,
 		workflowsText: collectWorkflowsText( root ),
-		configConstant: detectConfigConstant( phpSource ),
+		configConstant: detectedConstant,
+		manifestConstant: derived,
 		entryFile: detectEntryFile( root ),
-		manifest: inspectManifest( root ),
+		manifest,
 	};
 }
 
@@ -494,17 +513,54 @@ function checkComposerTest( ctx: Context ): CheckResult {
 }
 
 /**
- * Strip PHP comments so a `REQUIRED_FIELDS` / `SENSITIVE_FIELDS` mention inside a
- * `//`, `#`, or block comment isn't read as the real config contract. Best-effort
- * and does not track string literals — fine for reading a `const` array. The `//`
- * and `#` passes require a non-`:` / whitespace lead-in so a `https://` or `#fff`
- * inside a string isn't mistaken for a comment start.
+ * Keep comment markers inside quoted strings literal, and ignore block openers
+ * inside line comments. Separate stripping passes can otherwise erase real
+ * config declarations or references (see the comment/string regression cases
+ * in __tests__/validate.test.ts).
  */
 function stripPhpComments( source: string ): string {
-	return source
-		.replace( /\/\*[\s\S]*?\*\//g, '' )
-		.replace( /(^|[^:])\/\/[^\n]*/g, '$1' )
-		.replace( /(^|\s)#[^\n]*/g, '$1' );
+	const output: string[] = [];
+	let quote: string | null = null;
+	let comment: 'line' | 'block' | null = null;
+
+	for ( let index = 0; index < source.length; index++ ) {
+		const char = source[ index ];
+		const next = source[ index + 1 ];
+
+		if ( quote ) {
+			output.push( char );
+			if ( char === '\\' && next !== undefined ) {
+				output.push( next );
+				index++;
+			} else if ( char === quote ) {
+				quote = null;
+			}
+		} else if ( comment ) {
+			if ( char === '\n' || char === '\r' ) {
+				output.push( char );
+				if ( comment === 'line' ) {
+					comment = null;
+				}
+			} else if ( comment === 'block' && char === '*' && next === '/' ) {
+				comment = null;
+				index++;
+			}
+		} else if ( char === "'" || char === '"' ) {
+			quote = char;
+			output.push( char );
+		} else if ( char === '/' && ( next === '/' || next === '*' ) ) {
+			comment = next === '/' ? 'line' : 'block';
+			output.push( ' ' );
+			index++;
+		} else if ( char === '#' ) {
+			comment = 'line';
+			output.push( ' ' );
+		} else {
+			output.push( char );
+		}
+	}
+
+	return output.join( '' );
 }
 
 /**
@@ -666,8 +722,18 @@ function checkHandoffManifest( ctx: Context ): CheckResult {
 			message: `${ manifest.file } is schema-valid, but its config fields may not line up with what the plugin declares — double-check the following.`,
 			details: [
 				...configIssues,
+				...manifest.warnings,
 				"Best-effort cross-check: the plugin's config contract is read heuristically from the PHP source, so treat this as a prompt to verify — not a definitive failure.",
 			],
+		};
+	}
+
+	if ( manifest.warnings.length > 0 ) {
+		return {
+			...base,
+			status: 'warn',
+			message: `${ manifest.file } is schema-valid, but uses a deprecated field — see the following.`,
+			details: manifest.warnings,
 		};
 	}
 
@@ -689,6 +755,15 @@ function checkConfigConstantDocumented( ctx: Context ): CheckResult {
 	};
 	if ( ! ctx.configConstant ) {
 		return { ...base, status: 'not_applicable', message: CONFIG_DETECTION_NOTE };
+	}
+	// The platform defines the slug-derived constant, so a plugin that references
+	// a different VIP_*_CONFIG would read a constant that is never defined.
+	if ( ctx.manifestConstant && ctx.configConstant !== ctx.manifestConstant ) {
+		return {
+			...base,
+			status: 'fail',
+			message: `The manifest slug derives the config constant ${ ctx.manifestConstant }, but the plugin references ${ ctx.configConstant } — the platform only defines the derived constant.`,
+		};
 	}
 	if ( ctx.docsText.includes( ctx.configConstant ) ) {
 		return {
