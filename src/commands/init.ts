@@ -8,7 +8,7 @@
  * they are ready to check conformance.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -131,12 +131,26 @@ function isEmptyOrMissing( dir: string ): boolean {
 }
 
 /**
+ * `git clone --branch <ref>` warns when `ref` is an annotated tag — it resolves
+ * to the tag object, says so, then dereferences to the commit anyway. The clone
+ * is correct, but the line lands under "Laying down..." and reads like a failure.
+ * No flag suppresses it (`--no-tags`, `--single-branch` and dropping `--depth`
+ * all still warn on git 2.54.0) and it is a warning, not advice, so `advice.*`
+ * does nothing.
+ *
+ * Anchored tightly so every other line git writes still reaches the partner.
+ * Fetching the ref instead would avoid the warning, but cannot read a shallow
+ * source, which is how CI checks the kit out — don't swap it back.
+ */
+const ANNOTATED_TAG_WARNING = /^warning: refs\/tags\/\S+ [0-9a-f]{40} is not a commit!$/;
+
+/**
  * Lay the canonical VIP Starter Kit down into `target` and drop its git history,
  * leaving a clean tree. Clones only the tip of `ref` shallowly (no history),
  * then removes `.git`. The source is fixed to the Starter Kit URL; the env
  * override exists only so tests can run offline against a local clone.
  */
-function laySkeleton( target: string, source: string, ref: string | undefined ): void {
+export function laySkeleton( target: string, source: string, ref: string | undefined ): void {
 	const isRemote = /^[a-z]+:\/\/|^git@|\.git$/i.test( source );
 	// Shallow-clone remotes so no history is pulled; a local override path is
 	// cloned plainly (git ignores --depth for local paths and warns).
@@ -147,7 +161,7 @@ function laySkeleton( target: string, source: string, ref: string | undefined ):
 	// Cloning a tag lands on a detached HEAD; silence that advice since we drop
 	// `.git` immediately anyway. `--` ends option parsing so the source can never
 	// be read as a git flag.
-	execFileSync(
+	const result = spawnSync(
 		'git',
 		[
 			'-c',
@@ -160,8 +174,26 @@ function laySkeleton( target: string, source: string, ref: string | undefined ):
 			source,
 			target,
 		],
-		{ stdio: [ 'ignore', 'ignore', 'inherit' ] }
+		{ stdio: [ 'ignore', 'ignore', 'pipe' ], encoding: 'utf8' }
 	);
+
+	// Pass git's own diagnostics through, minus the one harmless line above, so a
+	// real failure still explains itself.
+	const stderr = ( result.stderr ?? '' )
+		.split( '\n' )
+		.filter( line => ! ANNOTATED_TAG_WARNING.test( line.trim() ) )
+		.join( '\n' );
+	if ( stderr.trim() !== '' ) {
+		process.stderr.write( stderr.endsWith( '\n' ) ? stderr : `${ stderr }\n` );
+	}
+
+	if ( result.error ) {
+		throw result.error;
+	}
+	if ( result.status !== 0 ) {
+		throw new Error( `git clone of the Starter Kit (${ source }) failed.` );
+	}
+
 	rmSync( resolve( target, '.git' ), { recursive: true, force: true } );
 }
 
