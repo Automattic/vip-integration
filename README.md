@@ -84,7 +84,7 @@ runtime_config:
         read_only: Read only
 ```
 
-Each key has to be one of the field's `values`, and a label can have up to 100 characters, can't be empty and can't be used for two values.
+Each key has to be one of the field's `values`, and a label can have up to 100 characters and can't be blank. No two options can show the same text, so a label can't repeat another label or another option's value.
 
 ## Documentation
 

@@ -395,9 +395,14 @@ export const MANIFEST_SCHEMA = {
 				},
 				value_labels: {
 					type: 'object',
-					additionalProperties: { type: 'string', maxLength: VALUE_LABEL_MAX_LENGTH },
+					// The pattern asks for one non-whitespace character, so a label can't be blank.
+					additionalProperties: {
+						type: 'string',
+						pattern: '\\S',
+						maxLength: VALUE_LABEL_MAX_LENGTH,
+					},
 					description:
-						'Enum fields only: the label the form shows for each option, keyed by its value, e.g. { read_only: "Read only" }. Each key must be one of "values". An option without a label is shown as its value. Labels can\'t be empty or repeated.',
+						'Enum fields only: the label the form shows for each option, keyed by its value, e.g. { read_only: "Read only" }. Each key must be one of "values". An option without a label is shown as its value. A label can\'t be blank, and no two options can show the same text.',
 				},
 				integer: {
 					type: 'boolean',

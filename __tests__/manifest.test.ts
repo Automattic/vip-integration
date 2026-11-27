@@ -197,6 +197,16 @@ describe( 'manifest field rules', () => {
 			},
 		],
 		[
+			'enum with two values swapping labels',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'us', 'eu' ],
+				value_labels: { us: 'eu', eu: 'us' },
+			},
+		],
+		[
 			'enum with labels that differ only by case',
 			{
 				key: 'a',
@@ -540,7 +550,7 @@ describe( 'manifest field rules', () => {
 		...[ '', '   ' ].map( ( label ): [ string, Field, RegExp ] => [
 			`a value label of ${ JSON.stringify( label ) }`,
 			{ key: 'a', label: 'A', type: 'enum', values: [ 'fast' ], value_labels: { fast: label } },
-			/^runtime_config\.fields\.0\.value_labels\.fast can't be empty\.$/,
+			/^runtime_config\.fields\.0\.value_labels\.fast is malformed \(must match \\S\)\.$/,
 		] ),
 		[
 			'a value label over 100 characters',
@@ -572,7 +582,18 @@ describe( 'manifest field rules', () => {
 				values: [ 'fast', 'quick', 'slow' ],
 				value_labels: { fast: 'Fast', quick: ' Fast ', slow: 'Slow' },
 			},
-			/^runtime_config\.fields\.0\.value_labels has the same label \("Fast"\) for "fast" and "quick"\.$/,
+			/^runtime_config\.fields\.0\.value_labels would show "Fast" for "fast" and "quick"\.$/,
+		],
+		[
+			"a value label equal to another option's value",
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'us', 'eu' ],
+				value_labels: { us: 'eu' },
+			},
+			/^runtime_config\.fields\.0\.value_labels would show "eu" for "us" and "eu"\.$/,
 		],
 		[
 			'a list default that is not a list',

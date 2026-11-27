@@ -232,31 +232,33 @@ function singleValueIssue( rules: ValueRules, value: unknown ): string | null {
 
 /**
  * Problems with an enum field's `value_labels`: a label for a value the field
- * doesn't have, an empty label, or two values with the same label (the form
- * would show two options a customer can't tell apart). Labels are compared
- * trimmed.
+ * doesn't have, or two options that show the same text (a customer couldn't
+ * tell them apart in the form). An option shows its trimmed label, or its
+ * value when it has none, so a label can't repeat another option's value
+ * either. The schema already rejects an empty label.
  */
 function valueLabelIssues( field: ConfigField, where: string ): string[] {
-	const issues: string[] = [];
-	const values = field.values ?? [];
-	const valuesByLabel = new Map< string, string[] >();
-	for ( const [ value, rawLabel ] of Object.entries( field.value_labels ?? {} ) ) {
-		const label = rawLabel.trim();
-		if ( ! values.includes( value ) ) {
-			issues.push(
-				`${ where }.${ value } is not one of the field's "values" (${ values.join( ', ' ) }).`
-			);
-		}
-		if ( label === '' ) {
-			issues.push( `${ where }.${ value } can't be empty.` );
-		} else {
-			valuesByLabel.set( label, [ ...( valuesByLabel.get( label ) ?? [] ), value ] );
-		}
+	const labels = field.value_labels;
+	if ( ! labels ) {
+		return [];
 	}
-	for ( const [ label, labelled ] of valuesByLabel ) {
-		if ( labelled.length > 1 ) {
+	const values = field.values ?? [];
+	const issues = Object.keys( labels )
+		.filter( value => ! values.includes( value ) )
+		.map(
+			value =>
+				`${ where }.${ value } is not one of the field's "values" (${ values.join( ', ' ) }).`
+		);
+
+	const valuesByText = new Map< string, string[] >();
+	for ( const value of new Set( values ) ) {
+		const text = Object.hasOwn( labels, value ) ? labels[ value ].trim() : value;
+		valuesByText.set( text, [ ...( valuesByText.get( text ) ?? [] ), value ] );
+	}
+	for ( const [ text, shownFor ] of valuesByText ) {
+		if ( shownFor.length > 1 ) {
 			issues.push(
-				`${ where } has the same label ("${ label }") for ${ labelled
+				`${ where } would show "${ text }" for ${ shownFor
 					.map( value => `"${ value }"` )
 					.join( ' and ' ) }.`
 			);
