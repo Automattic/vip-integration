@@ -235,7 +235,8 @@ function singleValueIssue( rules: ValueRules, value: unknown ): string | null {
  * doesn't have, or two options that show the same text (a customer couldn't
  * tell them apart in the form). An option shows its trimmed label, or its
  * value when it has none, so a label can't repeat another option's value
- * either. The schema already rejects an empty label.
+ * either. A value listed twice in `values` counts as two options. The schema
+ * already rejects an empty label.
  */
 function valueLabelIssues( field: ConfigField, where: string ): string[] {
 	const labels = field.value_labels;
@@ -251,7 +252,7 @@ function valueLabelIssues( field: ConfigField, where: string ): string[] {
 		);
 
 	const valuesByText = new Map< string, string[] >();
-	for ( const value of new Set( values ) ) {
+	for ( const value of values ) {
 		const text = Object.hasOwn( labels, value ) ? labels[ value ].trim() : value;
 		valuesByText.set( text, [ ...( valuesByText.get( text ) ?? [] ), value ] );
 	}

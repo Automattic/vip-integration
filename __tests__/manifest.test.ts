@@ -585,6 +585,17 @@ describe( 'manifest field rules', () => {
 			/^runtime_config\.fields\.0\.value_labels would show "Fast" for "fast" and "quick"\.$/,
 		],
 		[
+			'a label on a value listed twice',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'fast', 'fast' ],
+				value_labels: { fast: 'Fast' },
+			},
+			/^runtime_config\.fields\.0\.value_labels would show "Fast" for "fast" and "fast"\.$/,
+		],
+		[
 			"a value label equal to another option's value",
 			{
 				key: 'a',
