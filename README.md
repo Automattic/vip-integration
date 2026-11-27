@@ -68,6 +68,24 @@ The checker runs nine static conformance rules and prints a per-rule report. It 
 
 Point your editor at the generated [manifest JSON Schema](docs/vip-manifest.schema.json) for the supported fields and validation rules in `vip-manifest.yaml`. Run `vip-integration validate` to check the manifest, including constraints an editor's schema validation cannot check; see the [conformance checker architecture](docs/architecture.md#the-conformance-checker-libvalidate).
 
+An `enum` field's form options show the stored values unless the manifest gives them labels with `value_labels`. It maps a value to its label, and a value without one is shown as it is:
+
+```yaml
+runtime_config:
+  fields:
+    - key: sync_mode
+      label: Sync mode
+      type: enum
+      values:
+        - fast
+        - read_only
+      value_labels:
+        fast: Fast
+        read_only: Read only
+```
+
+Each key has to be one of the field's `values`, and a label can have up to 100 characters and can't be blank. No two options can show the same text, so a label can't repeat another label or another option's value.
+
 ## Documentation
 
 - [Setup](docs/setup.md) — install, build, and run from source.

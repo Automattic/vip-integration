@@ -166,6 +166,56 @@ describe( 'manifest field rules', () => {
 			'enum default from its values',
 			{ key: 'a', label: 'A', type: 'enum', values: [ 'x', 'y' ], default: 'y' },
 		],
+		[
+			'enum with a label for every value',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'fast', 'read_only' ],
+				value_labels: { fast: 'Fast', read_only: 'Read only' },
+			},
+		],
+		[
+			'enum with labels for some of its values',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'fast', 'read_only' ],
+				value_labels: { read_only: 'Read only' },
+			},
+		],
+		[
+			'enum with a 100-character label',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'fast' ],
+				value_labels: { fast: 'a'.repeat( 100 ) },
+			},
+		],
+		[
+			'enum with two values swapping labels',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'us', 'eu' ],
+				value_labels: { us: 'eu', eu: 'us' },
+			},
+		],
+		[
+			'enum with labels that differ only by case',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'fast', 'quick' ],
+				value_labels: { fast: 'Fast', quick: 'fast' },
+			},
+		],
 		// Patterns a linear-time engine like RE2 runs.
 		...(
 			[
@@ -234,6 +284,17 @@ describe( 'manifest field rules', () => {
 			{ key: 'a', label: 'A', type: 'text', max_items: 1 },
 			/"max_items" only applies to type "list"/,
 		],
+		...[ 'string', 'boolean', 'list' ].map( ( type ): [ string, Field, RegExp ] => [
+			`value_labels on a ${ type }`,
+			{
+				key: 'a',
+				label: 'A',
+				type,
+				...( type === 'list' ? { items: { type: 'string' } } : {} ),
+				value_labels: { fast: 'Fast' },
+			},
+			/fields\.0: "value_labels" only applies to type "enum"\./,
+		] ),
 		[
 			'example on a boolean',
 			{ key: 'a', label: 'A', type: 'boolean', example: 'yes' },
@@ -473,6 +534,77 @@ describe( 'manifest field rules', () => {
 			'an enum default outside its values',
 			{ key: 'a', label: 'A', type: 'enum', values: [ 'x', 'y' ], default: 'z' },
 			/default must be one of: x, y/,
+		],
+		// Enum value labels.
+		[
+			'a value label for a value the enum does not have',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'fast', 'read_only' ],
+				value_labels: { fast: 'Fast', slow: 'Slow' },
+			},
+			/^runtime_config\.fields\.0\.value_labels\.slow is not one of the field's "values" \(fast, read_only\)\.$/,
+		],
+		...[ '', '   ' ].map( ( label ): [ string, Field, RegExp ] => [
+			`a value label of ${ JSON.stringify( label ) }`,
+			{ key: 'a', label: 'A', type: 'enum', values: [ 'fast' ], value_labels: { fast: label } },
+			/^runtime_config\.fields\.0\.value_labels\.fast is malformed \(must match \\S\)\.$/,
+		] ),
+		[
+			'a value label over 100 characters',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'fast' ],
+				value_labels: { fast: 'a'.repeat( 101 ) },
+			},
+			/value_labels\.fast must NOT have more than 100 characters\./,
+		],
+		[
+			'a value label that is not a string',
+			{ key: 'a', label: 'A', type: 'enum', values: [ 'fast' ], value_labels: { fast: 1 } },
+			/value_labels\.fast must be string\./,
+		],
+		[
+			'value_labels that is a list',
+			{ key: 'a', label: 'A', type: 'enum', values: [ 'fast' ], value_labels: [ 'Fast' ] },
+			/value_labels must be object\./,
+		],
+		[
+			'two values with the same label',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'fast', 'quick', 'slow' ],
+				value_labels: { fast: 'Fast', quick: ' Fast ', slow: 'Slow' },
+			},
+			/^runtime_config\.fields\.0\.value_labels would show "Fast" for "fast" and "quick"\.$/,
+		],
+		[
+			'a label on a value listed twice',
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'fast', 'fast' ],
+				value_labels: { fast: 'Fast' },
+			},
+			/^runtime_config\.fields\.0\.value_labels would show "Fast" for "fast" and "fast"\.$/,
+		],
+		[
+			"a value label equal to another option's value",
+			{
+				key: 'a',
+				label: 'A',
+				type: 'enum',
+				values: [ 'us', 'eu' ],
+				value_labels: { us: 'eu' },
+			},
+			/^runtime_config\.fields\.0\.value_labels would show "eu" for "us" and "eu"\.$/,
 		],
 		[
 			'a list default that is not a list',

@@ -1,7 +1,8 @@
 /**
  * Checks on `runtime_config.fields` that a JSON Schema can't express: that a
  * field's `default` and `example` follow the field's own rules, that `min` /
- * `max` and the length bounds are in order, and that a `pattern` compiles.
+ * `max` and the length bounds are in order, that a `pattern` compiles, and that
+ * an enum's `value_labels` match its `values`.
  *
  * They run only after the manifest passes `MANIFEST_SCHEMA`, so every field
  * already has the right shape (a `min` is a number and only sits on a number
@@ -29,6 +30,7 @@ interface ValueRules {
 interface ConfigField extends ValueRules {
 	default?: unknown;
 	example?: unknown;
+	value_labels?: Record< string, string >;
 }
 
 // Same email and URL rules as the VIP Dashboard's config form, so a value that
@@ -229,6 +231,44 @@ function singleValueIssue( rules: ValueRules, value: unknown ): string | null {
 }
 
 /**
+ * Problems with an enum field's `value_labels`: a label for a value the field
+ * doesn't have, or two options that show the same text (a customer couldn't
+ * tell them apart in the form). An option shows its trimmed label, or its
+ * value when it has none, so a label can't repeat another option's value
+ * either. A value listed twice in `values` counts as two options. The schema
+ * already rejects an empty label.
+ */
+function valueLabelIssues( field: ConfigField, where: string ): string[] {
+	const labels = field.value_labels;
+	if ( ! labels ) {
+		return [];
+	}
+	const values = field.values ?? [];
+	const issues = Object.keys( labels )
+		.filter( value => ! values.includes( value ) )
+		.map(
+			value =>
+				`${ where }.${ value } is not one of the field's "values" (${ values.join( ', ' ) }).`
+		);
+
+	const valuesByText = new Map< string, string[] >();
+	for ( const value of values ) {
+		const text = Object.hasOwn( labels, value ) ? labels[ value ].trim() : value;
+		valuesByText.set( text, [ ...( valuesByText.get( text ) ?? [] ), value ] );
+	}
+	for ( const [ text, shownFor ] of valuesByText ) {
+		if ( shownFor.length > 1 ) {
+			issues.push(
+				`${ where } would show "${ text }" for ${ shownFor
+					.map( value => `"${ value }"` )
+					.join( ' and ' ) }.`
+			);
+		}
+	}
+	return issues;
+}
+
+/**
  * Rule problems across the manifest's `runtime_config.fields`. Expects a
  * manifest that already passed the schema.
  */
@@ -240,6 +280,7 @@ export function fieldRuleIssues( manifest: Record< string, unknown > ): string[]
 		if ( field.items ) {
 			issues.push( ...ruleIssues( field.items, `${ where }.items` ) );
 		}
+		issues.push( ...valueLabelIssues( field, `${ where }.value_labels` ) );
 		for ( const key of [ 'default', 'example' ] as const ) {
 			if ( field[ key ] !== undefined ) {
 				issues.push( ...valueIssues( field, field[ key ], `${ where }.${ key }` ) );

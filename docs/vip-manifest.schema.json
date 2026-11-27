@@ -250,6 +250,11 @@
           "items": { "type": "string" },
           "description": "Allowed values. Required when \"type\" is \"enum\"."
         },
+        "value_labels": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "pattern": "\\S", "maxLength": 100 },
+          "description": "Enum fields only: the label the form shows for each option, keyed by its value, e.g. { read_only: \"Read only\" }. Each key must be one of \"values\". An option without a label is shown as its value. A label can't be blank, and no two options can show the same text."
+        },
         "integer": {
           "type": "boolean",
           "description": "Number fields only: whether the value must be a whole number."
@@ -333,6 +338,11 @@
           "$comment": "A required field can't be nullable, since it can't be cleared.",
           "if": { "required": [ "required" ], "properties": { "required": { "const": true } } },
           "then": { "properties": { "nullable": { "const": false } } }
+        },
+        {
+          "$comment": "\"value_labels\" only applies to type \"enum\".",
+          "if": { "required": [ "value_labels" ] },
+          "then": { "properties": { "type": { "enum": [ "enum" ] } } }
         },
         {
           "$comment": "\"integer\" only applies to type \"number\".",
