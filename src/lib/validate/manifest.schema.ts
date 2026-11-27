@@ -56,12 +56,16 @@ export const FIELD_FORMATS = [ 'ip_or_cidr', 'url', 'email' ] as const;
 /** Units a `number` field can declare, shown next to the input. */
 export const FIELD_UNITS = [ 'seconds', 'minutes', 'hours', 'days' ] as const;
 
+/** The longest label an enum field's `value_labels` can give an option. */
+const VALUE_LABEL_MAX_LENGTH = 100;
+
 /**
  * The field types each validation key applies to. The schema rejects a key on
  * any other type (`min` on a string field), so a rule is never silently
  * ignored.
  */
 const RULE_TYPES: Record< string, readonly string[] > = {
+	value_labels: [ 'enum' ],
 	integer: [ 'number' ],
 	min: [ 'number' ],
 	max: [ 'number' ],
@@ -388,6 +392,12 @@ export const MANIFEST_SCHEMA = {
 					minItems: 1,
 					items: { type: 'string' },
 					description: 'Allowed values. Required when "type" is "enum".',
+				},
+				value_labels: {
+					type: 'object',
+					additionalProperties: { type: 'string', maxLength: VALUE_LABEL_MAX_LENGTH },
+					description:
+						'Enum fields only: the label the form shows for each option, keyed by its value, e.g. { read_only: "Read only" }. Each key must be one of "values". An option without a label is shown as its value. Labels can\'t be empty or repeated.',
 				},
 				integer: {
 					type: 'boolean',
